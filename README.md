@@ -18,6 +18,7 @@ Small service businesses (cleaners, repairers, tutors) sell over chat. The owner
 4. **Payment lands.** The server polls the invoice; when PayPal marks it paid, the agent thanks the customer and confirms the booking.
 5. **Payment doesn't land.** After the due date the agent sends a PayPal reminder and one polite nudge in the chat.
 6. **"I paid by bank transfer."** The agent asks the owner to check the account. It records the payment on the invoice only after the owner confirms. It never marks money as received on the customer's word.
+7. **Regular customers.** Ask for a clean every week, two weeks or four weeks and the agent quotes it as a plan. Once the owner approves (price, frequency, first visit and number of visits), the agent sets up a PayPal recurring invoice series that bills every visit on its own.
 
 ## Guardrails are code, not prompt
 
@@ -35,7 +36,7 @@ The rules that protect the owner live in [`src/shop.ts`](src/shop.ts), not in th
 
 ## PayPal and AI used
 
-- **PayPal Invoicing API through the PayPal Agent Toolkit** (`@paypal/agent-toolkit`): `create_invoice`, `send_invoice`, `get_invoice`, `send_invoice_reminder`, `record_payment_for_invoice`. The model sees the toolkit's own tool schemas, except `create_invoice`, which is narrowed to name and email; every call runs through `PayPalAgentToolkit.handleToolCall` against the sandbox.
+- **PayPal Invoicing API through the PayPal Agent Toolkit** (`@paypal/agent-toolkit`): `create_invoice`, `send_invoice`, `get_invoice`, `send_invoice_reminder`, `record_payment_for_invoice`, and for plans `create_recurring_series` and `activate_recurring_series`. The model sees the toolkit's own tool schemas, except `create_invoice`, which is narrowed to name and email; every call runs through `PayPalAgentToolkit.handleToolCall` against the sandbox.
 - **Claude** (`claude-opus-5-5` by default, set `MODEL` to change) through the official Anthropic TypeScript SDK, with tool use. Shop events (owner approved, invoice paid, invoice overdue) are fed to the same conversation, so the agent reacts to them in context.
 
 ## Run it
@@ -76,6 +77,7 @@ Set `DEMO=1` to run it for strangers: each visitor gets their own conversation (
 | `SESSION_TURN_CAP` | 30 | agent turns per conversation (Start over keeps the count) |
 | `DAILY_CALL_CAP` | 600 | Claude API calls per day across everyone (a turn can take several) |
 | `MAX_SESSIONS` | 200 | conversations kept in memory; idle ones expire after 2 h |
+| `PLAN_MAX_CYCLES` | 12 | visits in a repeating plan (the hosted demo uses 3) |
 | `MODEL`, `EFFORT` | `claude-opus-5-5`, `low` | the Claude model and effort; the hosted demo runs `claude-haiku-5-5` at `medium` |
 | `HOST`, `PUBLIC_HOST` | `127.0.0.1`, none | bind address and the public host name the server accepts |
 
