@@ -54,7 +54,9 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
     case "propose_quote": {
       if (s.invoice) throw new Error("An invoice already exists for this conversation.");
       const { lines, total } = priceQuote(input.items ?? []);
-      s.quote = { lines, total, note: input.note ?? "", status: "pending" };
+      // A new quote supersedes any open one, so an old Approve button cannot approve it.
+      for (const e of s.owner) if (e.kind === "quote" && e.status === "open") e.status = "done";
+      s.quote = { lines, total, note: String(input.note ?? "").slice(0, 500), status: "pending" };
       const summary = lines.map((l) => `${l.quantity} × ${l.name} @ £${l.unit_amount.value}`).join("; ");
       ownerEvent(s, "quote", `Quote for £${total}: ${summary}${input.note ? ` (${input.note})` : ""}`);
       return `Quote of £${total} sent to the owner for approval. Tell the customer the total and that you will confirm shortly. Do not create an invoice yet.`;
@@ -70,12 +72,19 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
     case "create_invoice": {
       if (s.quote?.status !== "approved") throw new Error("The owner has not approved a quote yet. Wait for approval.");
       if (s.invoice) throw new Error(`Invoice ${s.invoice.id} already exists. Send that one.`);
-      // ponytail: the model only supplies who to bill; lines and currency always come from the approved quote.
+      // The model only supplies who to bill. Everything that touches money (lines, currency,
+      // shipping, tips, partial payment) is never taken from its input.
+      const name = String(input.customer_name ?? "").trim();
+      const email = String(input.customer_email ?? "").trim();
+      if (!name || name.length > 100) throw new Error("customer_name is required (max 100 characters).");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error("customer_email must be a valid email address.");
+      const [given, ...rest] = name.split(/\s+/);
       const result = await paypal("create_invoice", {
-        ...input,
         currency_code: catalog.currency,
         items: s.quote.lines,
         invoicer_business_name: catalog.business,
+        note: s.quote.note ? `Job: ${s.quote.note}`.slice(0, 1000) : undefined,
+        primary_recipients: [{ billing_info: { name: { given_name: given, surname: rest.join(" ") || undefined }, email_address: email } }],
       });
       const id = invoiceIdIn(result);
       if (!id) throw new Error(`PayPal did not return an invoice id: ${JSON.stringify(result).slice(0, 300)}`);
@@ -136,7 +145,23 @@ function assertOurs(s: State, id: unknown) {
   if (id !== s.invoice.id) throw new Error(`Only invoice ${s.invoice.id} belongs to this conversation.`);
 }
 
-export const PAYPAL_TOOLS = ["create_invoice", "send_invoice", "get_invoice", "send_invoice_reminder", "record_payment_for_invoice"];
+// create_invoice gets our own narrow schema; the rest use the PayPal Agent Toolkit's schemas.
+export const PAYPAL_TOOLS = ["send_invoice", "get_invoice", "send_invoice_reminder", "record_payment_for_invoice"];
+
+const CREATE_INVOICE_TOOL = {
+  name: "create_invoice",
+  description:
+    "Create the PayPal invoice for the approved quote. Line items, prices and currency are filled in from the approved quote; you only say who to bill.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      customer_name: { type: "string", description: "The customer's full name." },
+      customer_email: { type: "string", description: "The email PayPal sends the invoice to." },
+    },
+    required: ["customer_name", "customer_email"],
+    additionalProperties: false,
+  },
+};
 
 export const LOCAL_TOOLS = [
   {
@@ -178,6 +203,7 @@ export const LOCAL_TOOLS = [
       additionalProperties: false,
     },
   },
+  CREATE_INVOICE_TOOL,
 ];
 
 export function catalogText(): string {

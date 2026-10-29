@@ -5,6 +5,8 @@ import { mockPayPal, paypalToolSchemas, realPayPal } from "./paypal.ts";
 import { isPaid, newState, ownerEvent, type PayPal } from "./shop.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
+// ponytail: no login. The owner panel is for a local or demo deployment; bind to localhost unless HOST is set.
+const HOST = process.env.HOST ?? "127.0.0.1";
 const { PAYPAL_CLIENT_ID: id, PAYPAL_CLIENT_SECRET: secret } = process.env;
 const mock = !(id && secret) ? mockPayPal() : undefined;
 const paypal: PayPal = mock ? mock.run : realPayPal(id!, secret!);
@@ -22,6 +24,9 @@ const body = async (req: IncomingMessage) => {
 async function ownerAction(action: string, eventId: number) {
   const e = state.owner.find((x) => x.id === eventId && x.status === "open");
   if (!e) throw new Error("That item is no longer open.");
+  const kind = action.endsWith("_quote") ? "quote" : "payment";
+  if (e.kind !== kind) throw new Error("That button does not belong to this item.");
+  if (kind === "quote" ? state.quote?.status !== "pending" : state.paymentClaim?.status !== "pending") throw new Error("Nothing is waiting for that answer.");
   e.status = "done";
   if (action === "approve_quote" && state.quote) {
     state.quote.status = "approved";
@@ -71,6 +76,8 @@ createServer(async (req, res) => {
       return send(200, "<p>Demo payment done. Go back to the chat.</p>", "text/html");
     }
     if (req.method !== "POST") return send(404, { error: "not found" });
+    // Reject cross-site POSTs: a page on another origin must not be able to press the owner's buttons.
+    if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(403, { error: "cross-origin request" });
 
     const b = await body(req);
     if (url.pathname === "/api/customer") {
@@ -94,4 +101,4 @@ createServer(async (req, res) => {
     console.error(err);
     send(500, { error: (err as Error).message });
   }
-}).listen(PORT, () => console.log(`quote-to-cash-agent on http://localhost:${PORT} (${mock ? "mock PayPal" : "PayPal sandbox"})`));
+}).listen(PORT, HOST, () => console.log(`quote-to-cash-agent on http://${HOST}:${PORT} (${mock ? "mock PayPal" : "PayPal sandbox"})`));

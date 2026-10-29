@@ -23,8 +23,8 @@ The rules that protect the owner live in [`src/shop.ts`](src/shop.ts), not in th
 
 | Rule | Where it is enforced |
 | --- | --- |
-| Prices come only from `catalog.json` | `propose_quote` prices the items itself; `create_invoice` replaces whatever line items the model sends with the approved quote |
-| No invoice before the owner approves | `create_invoice` refuses while the quote is pending |
+| Prices come only from `catalog.json` | `propose_quote` prices the items itself; for `create_invoice` the model can only give the customer's name and email, and the server builds the rest (lines, currency, no shipping, tips or partial payments) from the approved quote |
+| No invoice before the owner approves | `create_invoice` refuses while the quote is pending; a new quote closes the previous Approve button |
 | The agent touches only this conversation's invoice | `send_invoice`, `get_invoice`, `send_invoice_reminder` and `record_payment_for_invoice` reject any other id |
 | No payment recorded without the owner | `record_payment_for_invoice` refuses until the owner confirms; amount and date are set by the server |
 | No reminder on a paid invoice | `send_invoice_reminder` refuses once the invoice is paid |
@@ -33,7 +33,7 @@ The rules that protect the owner live in [`src/shop.ts`](src/shop.ts), not in th
 
 ## PayPal and AI used
 
-- **PayPal Invoicing API through the PayPal Agent Toolkit** (`@paypal/agent-toolkit`): `create_invoice`, `send_invoice`, `get_invoice`, `send_invoice_reminder`, `record_payment_for_invoice`. The model sees the toolkit's own tool schemas; calls run through `PayPalAgentToolkit.handleToolCall` against the sandbox.
+- **PayPal Invoicing API through the PayPal Agent Toolkit** (`@paypal/agent-toolkit`): `create_invoice`, `send_invoice`, `get_invoice`, `send_invoice_reminder`, `record_payment_for_invoice`. The model sees the toolkit's own tool schemas, except `create_invoice`, which is narrowed to name and email; every call runs through `PayPalAgentToolkit.handleToolCall` against the sandbox.
 - **Claude** (`claude-opus-5-5` by default, set `MODEL` to change) through the official Anthropic TypeScript SDK, with tool use. Shop events (owner approved, invoice paid, invoice overdue) are fed to the same conversation, so the agent reacts to them in context.
 
 ## Run it
@@ -79,6 +79,7 @@ public/index.html  customer chat and owner panel
 - One conversation at a time, kept in memory. A real deployment needs a store keyed by phone number and the WhatsApp Business API in front of `/api/customer`.
 - Paid status is found by polling. PayPal webhooks (`INVOICING.INVOICE.PAID`) would replace the poll in production.
 - The catalogue is fixed prices only; jobs that need a site visit should go to the owner.
+- The owner panel has no login. The server binds to `127.0.0.1`; set `HOST=0.0.0.0` only for a demo you are happy for anyone with the URL to drive. Cross-origin POSTs are refused.
 
 ## License
 

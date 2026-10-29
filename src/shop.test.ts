@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mockPayPal } from "./paypal.ts";
 import { handleTool, newState, priceQuote } from "./shop.ts";
 
-const bill = { primary_recipients: [{ billing_info: { email_address: "sam@example.com" } }] };
+const bill = { customer_name: "Sam Taylor", customer_email: "sam@example.com" };
 
 test("prices come from the catalogue", () => {
   const q = priceQuote([{ service_id: "deep-clean", quantity: 1 }, { service_id: "oven", quantity: 2 }]);
@@ -21,9 +21,14 @@ test("no invoice before the owner approves, and the invoice uses the approved li
   s.quote!.status = "approved";
   const seen: any[] = [];
   const spy = async (name: string, input: any) => (seen.push([name, input]), run(name, input));
-  // The model tries to slip in its own price; the approved quote wins.
-  await handleTool(s, spy, "create_invoice", { ...bill, items: [{ name: "x", quantity: "1", unit_amount: { currency_code: "GBP", value: "1.00" } }] });
-  assert.equal(seen[0][1].items[0].unit_amount.value, "220.00");
+  await assert.rejects(handleTool(s, spy, "create_invoice", { customer_name: "Sam", customer_email: "nope" }), /valid email/);
+  // The model tries to slip in its own price and extra charges; only the approved quote reaches PayPal.
+  await handleTool(s, spy, "create_invoice", { ...bill, shipping_cost: "500.00", allow_tip: true, items: [{ name: "x", quantity: "1", unit_amount: { currency_code: "GBP", value: "1.00" } }] });
+  const sent = seen[0][1];
+  assert.equal(sent.items[0].unit_amount.value, "220.00");
+  assert.equal(sent.shipping_cost, undefined);
+  assert.equal(sent.allow_tip, undefined);
+  assert.equal(sent.primary_recipients[0].billing_info.email_address, "sam@example.com");
   assert.match(s.invoice!.id, /^INV2-/);
 });
 
@@ -53,4 +58,14 @@ test("a payment is recorded only after the owner confirms it", async () => {
   await handleTool(s, run, "record_payment_for_invoice", { invoice_id: s.invoice!.id, method: "CASH" });
   assert.equal(s.invoice!.status, "MARKED_AS_PAID");
   await assert.rejects(handleTool(s, run, "send_invoice_reminder", { invoice_id: s.invoice!.id }), /already paid/);
+});
+
+test("a new quote closes the previous quote's approval item", async () => {
+  const { run } = mockPayPal();
+  const s = newState();
+  await handleTool(s, run, "propose_quote", { items: [{ service_id: "oven", quantity: 1 }] });
+  await handleTool(s, run, "propose_quote", { items: [{ service_id: "deep-clean", quantity: 1 }] });
+  const open = s.owner.filter((e) => e.kind === "quote" && e.status === "open");
+  assert.equal(open.length, 1);
+  assert.match(open[0].text, /220\.00/);
 });
