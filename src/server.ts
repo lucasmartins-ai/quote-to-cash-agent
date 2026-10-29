@@ -7,6 +7,8 @@ import { isPaid, newState, ownerEvent, type PayPal } from "./shop.ts";
 const PORT = Number(process.env.PORT ?? 3000);
 // ponytail: no login. The owner panel is for a local or demo deployment; bind to localhost unless HOST is set.
 const HOST = process.env.HOST ?? "127.0.0.1";
+// Host allowlist blocks DNS rebinding: a hostile domain resolving to this machine still sends its own Host.
+const HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, ...(process.env.PUBLIC_HOST ? [process.env.PUBLIC_HOST] : [])]);
 const { PAYPAL_CLIENT_ID: id, PAYPAL_CLIENT_SECRET: secret } = process.env;
 const mock = !(id && secret) ? mockPayPal() : undefined;
 const paypal: PayPal = mock ? mock.run : realPayPal(id!, secret!);
@@ -68,6 +70,7 @@ createServer(async (req, res) => {
     res.end(type === "application/json" ? JSON.stringify(data) : (data as string));
   };
   try {
+    if (!HOSTS.has(req.headers.host ?? "")) return send(403, { error: "unknown host" });
     const url = new URL(req.url ?? "/", "http://x");
     if (req.method === "GET" && url.pathname === "/") return send(200, await readFile(new URL("../public/index.html", import.meta.url), "utf8"), "text/html");
     if (req.method === "GET" && url.pathname === "/api/state") return send(200, { ...state, mode: mock ? "mock" : "sandbox" });
@@ -77,7 +80,8 @@ createServer(async (req, res) => {
     }
     if (req.method !== "POST") return send(404, { error: "not found" });
     // Reject cross-site POSTs: a page on another origin must not be able to press the owner's buttons.
-    if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(403, { error: "cross-origin request" });
+    const origin = req.headers.origin;
+    if (!origin || !URL.canParse(origin) || !HOSTS.has(new URL(origin).host)) return send(403, { error: "cross-origin request" });
 
     const b = await body(req);
     if (url.pathname === "/api/customer") {

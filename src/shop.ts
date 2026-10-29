@@ -83,7 +83,6 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
         currency_code: catalog.currency,
         items: s.quote.lines,
         invoicer_business_name: catalog.business,
-        note: s.quote.note ? `Job: ${s.quote.note}`.slice(0, 1000) : undefined,
         primary_recipients: [{ billing_info: { name: { given_name: given, surname: rest.join(" ") || undefined }, email_address: email } }],
       });
       const id = invoiceIdIn(result);

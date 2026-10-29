@@ -79,7 +79,7 @@ public/index.html  customer chat and owner panel
 - One conversation at a time, kept in memory. A real deployment needs a store keyed by phone number and the WhatsApp Business API in front of `/api/customer`.
 - Paid status is found by polling. PayPal webhooks (`INVOICING.INVOICE.PAID`) would replace the poll in production.
 - The catalogue is fixed prices only; jobs that need a site visit should go to the owner.
-- The owner panel has no login. The server binds to `127.0.0.1`; set `HOST=0.0.0.0` only for a demo you are happy for anyone with the URL to drive. Cross-origin POSTs are refused.
+- The owner panel has no login. The server binds to `127.0.0.1`; for a hosted demo set `HOST=0.0.0.0` and `PUBLIC_HOST=<your.domain>`, and only if you are happy for anyone with the URL to drive it. Requests with any other Host header, and POSTs without a matching Origin, are refused.
 
 ## License
 
