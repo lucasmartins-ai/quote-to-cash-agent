@@ -74,6 +74,7 @@ Set `DEMO=1` to run it for strangers: each visitor gets their own conversation (
 | `SESSION_TURN_CAP` | 30 | agent turns per conversation (Start over keeps the count) |
 | `DAILY_TURN_CAP` | 300 | agent turns per day across everyone |
 | `MAX_SESSIONS` | 200 | conversations kept in memory; idle ones expire after 2 h |
+| `MODEL`, `EFFORT` | `claude-opus-5-5`, `low` | the Claude model and effort; the hosted demo runs `claude-haiku-5-5` at `medium` |
 | `HOST`, `PUBLIC_HOST` | `127.0.0.1`, none | bind address and the public host name the server accepts |
 
 New conversations are limited to 6 per IP per hour. Put a monthly spend limit on the Anthropic key as well; the caps above are a second line.
