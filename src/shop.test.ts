@@ -88,3 +88,18 @@ test("a new payment claim closes the previous Money arrived item", async () => {
   assert.equal(open.length, 1);
   assert.match(open[0].text, /CASH/);
 });
+
+test("in the public demo the invoice goes to the fixed sandbox address", async () => {
+  process.env.DEMO_RECIPIENT_EMAIL = "buyer@sandbox.example";
+  try {
+    const { run } = mockPayPal();
+    const s = newState();
+    await handleTool(s, run, "propose_quote", { items: [{ service_id: "oven", quantity: 1 }] });
+    s.quote!.status = "approved";
+    const seen: any[] = [];
+    await handleTool(s, async (n, i) => (seen.push(i), run(n, i)), "create_invoice", { customer_name: "Eve", customer_email: "stranger@example.com" });
+    assert.equal(seen[0].primary_recipients[0].billing_info.email_address, "buyer@sandbox.example");
+  } finally {
+    delete process.env.DEMO_RECIPIENT_EMAIL;
+  }
+});

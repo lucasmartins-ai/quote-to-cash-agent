@@ -38,7 +38,7 @@ The rules that protect the owner live in [`src/shop.ts`](src/shop.ts), not in th
 
 ## Run it
 
-Requires Node 20+.
+Requires Node 22.9+.
 
 ```bash
 npm install
@@ -62,6 +62,21 @@ Use the invoice email of a sandbox personal account as the customer's email, so 
 npm test        # guardrail tests, no keys needed
 npm run typecheck
 ```
+
+## Hosting a public demo
+
+Set `DEMO=1` to run it for strangers: each visitor gets their own conversation (cookie), and Claude spend is capped.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `DEMO` | off | `1` turns on per-visitor sessions, limits and the demo notice |
+| `DEMO_RECIPIENT_EMAIL` | required with `DEMO=1` | every invoice goes to this sandbox address, never to what a visitor types |
+| `SESSION_TURN_CAP` | 30 | agent turns per conversation (Start over keeps the count) |
+| `DAILY_TURN_CAP` | 300 | agent turns per day across everyone |
+| `MAX_SESSIONS` | 200 | conversations kept in memory; idle ones expire after 2 h |
+| `HOST`, `PUBLIC_HOST` | `127.0.0.1`, none | bind address and the public host name the server accepts |
+
+New conversations are limited to 6 per IP per hour. Put a monthly spend limit on the Anthropic key as well; the caps above are a second line.
 
 ## Layout
 

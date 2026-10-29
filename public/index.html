@@ -216,7 +216,7 @@
     </section>
 
     <div class="tools">
-      <p>Demo controls, for trying the flow end to end.</p>
+      <p id="tools-note">Demo controls, for trying the flow end to end.</p>
       <div class="actions">
         <button class="btn ghost" id="overdue" title="Pretend a week has passed without payment">Skip 7 days unpaid</button>
         <button class="btn ghost" id="reset">Start over</button>
@@ -254,6 +254,7 @@ async function post(path, data) {
   try {
     const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data ?? {}) });
     const j = await r.json().catch(() => ({}));
+    if (r.status === 409 && /expired/.test(j.error ?? "")) return location.reload();
     if (!r.ok) toast(j.error ?? "Something went wrong.");
   } catch { toast("Can't reach the server."); }
   finally { busy = false; refresh(); }
@@ -271,6 +272,7 @@ function stage(s) {
 function render() {
   const s = S; if (!s) return;
   const m = $("mode"); m.textContent = s.mode === "mock" ? "Mock PayPal" : "PayPal sandbox"; m.className = `mode ${s.mode}`;
+  if (s.demo) $("tools-note").textContent = `Live demo on the PayPal sandbox: no real money moves, and invoices go to a test account. ${s.turnsLeft} agent turns left in this conversation.`;
 
   // Chat
   const msgs = s.chat.map((x) => `<div class="msg ${x.from}">${rich(x.text)}<time>${time(x.at)}</time></div>`).join("");

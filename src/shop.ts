@@ -85,7 +85,8 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
         currency_code: catalog.currency,
         items: s.quote.lines,
         invoicer_business_name: catalog.business,
-        primary_recipients: [{ billing_info: { name: { given_name: given, surname: rest.join(" ") || undefined }, email_address: email } }],
+        // Public demo: invoices always go to one sandbox address, so visitors cannot make it email strangers.
+        primary_recipients: [{ billing_info: { name: { given_name: given, surname: rest.join(" ") || undefined }, email_address: process.env.DEMO_RECIPIENT_EMAIL || email } }],
       });
       const id = invoiceIdIn(result);
       if (!id) throw new Error(`PayPal did not return an invoice id: ${JSON.stringify(result).slice(0, 300)}`);
