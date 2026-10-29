@@ -11,7 +11,7 @@ interface Env {
   PUBLIC_HOSTS: string; // comma-separated hosts this worker answers on
   DEMO_RECIPIENT_EMAIL: string;
   SESSION_TURN_CAP?: string;
-  DAILY_TURN_CAP?: string;
+  DAILY_CALL_CAP?: string;
   PAYPAL_CLIENT_ID: string;
   PAYPAL_CLIENT_SECRET: string;
   ANTHROPIC_API_KEY: string;
@@ -20,6 +20,8 @@ interface Env {
 type Reply = { status: number; body: any }; // any, not unknown: RPC types turn unknown into never
 const IDLE_MS = 2 * 3600_000;
 const POLL_MS = 10_000;
+const MAX_POLLS = 360; // stop watching an unpaid invoice after an hour of polling
+const COOKIE = "__Host-q2c"; // __Host-: no other lookadev.com subdomain can plant or read it
 
 // The shared modules read settings from process.env (agent model, demo recipient, PayPal mode).
 function loadEnv(env: Env) {
@@ -35,18 +37,23 @@ export class BudgetDO extends DurableObject<Env> {
   }
   async check(): Promise<string | null> {
     const d = await this.day();
-    return d.turns >= Number(this.env.DAILY_TURN_CAP ?? 300) ? "The live demo reached today's usage limit. The code runs locally in a few minutes: see the GitHub README." : null;
+    return d.turns >= Number(this.env.DAILY_CALL_CAP ?? 600) ? "The live demo reached today's usage limit. The code runs locally in a few minutes: see the GitHub README." : null;
   }
-  async spend() {
+  // Check and count in one method: Durable Object input gates keep other calls out between the get and the put.
+  async reserve(): Promise<string | null> {
     const d = await this.day();
+    if (d.turns >= Number(this.env.DAILY_CALL_CAP ?? 600)) return "The live demo reached today's usage limit. The code runs locally in a few minutes: see the GitHub README.";
     await this.ctx.storage.put("day", { day: d.day, turns: d.turns + 1 });
+    return null;
   }
-  // At most 6 new conversations per IP per hour.
+  // At most 20 new conversations per address per hour (IPv6 counted per /64), and 120 per hour in total.
   async allowNewSession(ip: string): Promise<boolean> {
-    const key = "ip:" + ip;
+    const key = "ip:" + (ip.includes(":") ? ip.split(":").slice(0, 4).join(":") : ip);
     const recent = ((await this.ctx.storage.get<number[]>(key)) ?? []).filter((t) => Date.now() - t < 3600_000);
-    if (recent.length >= 6) return false;
+    const all = ((await this.ctx.storage.get<number[]>("all")) ?? []).filter((t) => Date.now() - t < 3600_000);
+    if (recent.length >= 20 || all.length >= 120) return false;
     await this.ctx.storage.put(key, [...recent, Date.now()]);
+    await this.ctx.storage.put("all", [...all, Date.now()]);
     if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + 3600_000);
     return true;
   }
@@ -69,7 +76,7 @@ export class ConversationDO extends DurableObject<Env> {
     const budgetStub = this.env.BUDGET.get(this.env.BUDGET.idFromName("global"));
     const budget: DailyBudget = {
       async check() { const msg = await budgetStub.check(); if (msg) throw new HttpError(429, msg); },
-      async spend() { await budgetStub.spend(); },
+      async reserve() { const msg = await budgetStub.reserve(); if (msg) throw new HttpError(429, msg); },
     };
     const paypal = realPayPal(this.env.PAYPAL_CLIENT_ID, this.env.PAYPAL_CLIENT_SECRET);
     this.convo = new Conversation(paypal, paypalToolSchemas(), budget, Number(this.env.SESSION_TURN_CAP ?? 30), snap ?? undefined);
@@ -81,6 +88,7 @@ export class ConversationDO extends DurableObject<Env> {
     if (!this.convo) return;
     await this.ctx.storage.put("snap", this.convo.snapshot());
     await this.ctx.storage.put("seen", Date.now());
+    await this.ctx.storage.put("polls", 0); // a visitor action restarts the payment watch
     await this.ctx.storage.setAlarm(Date.now() + (this.convo.watching ? POLL_MS : IDLE_MS));
   }
 
@@ -95,7 +103,7 @@ export class ConversationDO extends DurableObject<Env> {
     } catch (err) {
       const status = err instanceof HttpError ? err.code : 500;
       if (status === 500) console.error(err);
-      return { status, body: { error: (err as Error).message } };
+      return { status, body: { error: status === 500 ? "Something went wrong. Try again in a moment." : (err as Error).message } };
     } finally {
       if (loaded) await this.save();
     }
@@ -124,9 +132,16 @@ export class ConversationDO extends DurableObject<Env> {
     if (Date.now() - seen > IDLE_MS) { await this.ctx.storage.deleteAll(); this.convo = undefined; return; }
     const c = await this.load(false);
     if (!c) return;
-    try { await c.checkPayment(); } catch (e) { console.error("payment check:", (e as Error).message); }
-    await this.ctx.storage.put("snap", c.snapshot());
-    await this.ctx.storage.setAlarm(Date.now() + (c.watching ? POLL_MS : IDLE_MS - (Date.now() - seen)));
+    const polls = (await this.ctx.storage.get<number>("polls")) ?? 0;
+    if (c.watching && polls < MAX_POLLS) {
+      const before = JSON.stringify(c.snapshot());
+      try { await c.checkPayment(); } catch (e) { console.error("payment check:", (e as Error).message); }
+      const after = c.snapshot();
+      if (JSON.stringify(after) !== before) await this.ctx.storage.put("snap", after); // write only when something changed
+      await this.ctx.storage.put("polls", polls + 1);
+    }
+    const keepPolling = c.watching && polls + 1 < MAX_POLLS;
+    await this.ctx.storage.setAlarm(Date.now() + (keepPolling ? POLL_MS : Math.max(60_000, IDLE_MS - (Date.now() - seen))));
   }
 }
 
@@ -139,11 +154,13 @@ export default {
     const hosts = new Set(env.PUBLIC_HOSTS.split(",").map((h) => h.trim()).filter(Boolean));
     if (!hosts.has(url.host)) return json(403, { error: "unknown host" });
     if (req.method === "GET" && url.pathname === "/") {
-      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex", "referrer-policy": "no-referrer" } });
+      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex", "referrer-policy": "no-referrer", "content-security-policy": "frame-ancestors 'none'", "x-frame-options": "DENY" } });
     }
+    // Only this page may call the API: browsers mark requests from other sites (an <img> tag, a form) as cross-site.
+    if (url.pathname.startsWith("/api/") && req.headers.get("sec-fetch-site") === "cross-site") return json(403, { error: "cross-site request" });
     if (req.method === "GET" && url.pathname === "/healthz") return json(200, { ok: true });
 
-    const sid = /(?:^|;\s*)q2c=([0-9a-f-]{36})/.exec(req.headers.get("cookie") ?? "")?.[1];
+    const sid = /(?:^|;\s*)__Host-q2c=([0-9a-f-]{36})/.exec(req.headers.get("cookie") ?? "")?.[1];
     // The RPC stub types recurse through Conversation; a plain view of the methods keeps tsc fast and exact.
     type ConvoRpc = { [K in "init" | "state" | "customer" | "owner" | "overdue" | "reset"]: (...a: Parameters<ConversationDO[K]>) => Promise<Reply> };
     const stub = (id: string) => env.CONVO.get(env.CONVO.idFromName(id)) as unknown as ConvoRpc;
@@ -160,7 +177,7 @@ export default {
       const fresh = crypto.randomUUID();
       await stub(fresh).init();
       const r = await stub(fresh).state();
-      return json(r.status, r.body, { "set-cookie": `q2c=${fresh}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=7200` });
+      return json(r.status, r.body, { "set-cookie": `${COOKIE}=${fresh}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=7200` });
     }
 
     if (req.method !== "POST") return json(404, { error: "not found" });
@@ -168,6 +185,7 @@ export default {
     const origin = req.headers.get("origin");
     if (!origin || !URL.canParse(origin) || !hosts.has(new URL(origin).host)) return json(403, { error: "cross-origin request" });
     if (!sid) return json(409, { error: "Your demo session expired. Reload the page." });
+    if (Number(req.headers.get("content-length") ?? 0) > 20_000) return json(413, { error: "request too large" });
     const raw = await req.text();
     if (raw.length > 20_000) return json(413, { error: "request too large" });
     let b: any;

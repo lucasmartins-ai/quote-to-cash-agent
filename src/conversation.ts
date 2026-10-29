@@ -8,7 +8,10 @@ export class HttpError extends Error {
 }
 
 // Spend across all conversations (per day). The Node server keeps it in memory; the Worker in a Durable Object.
-export type DailyBudget = { check(): Promise<void>; spend(): Promise<void> };
+// check() is a read-only early answer; reserve() checks and counts one Claude call atomically and throws 429 when full.
+export type DailyBudget = { check(): Promise<void>; reserve(): Promise<void> };
+
+const LIMIT_MSG = "This demo conversation reached its message limit. Reload the page tomorrow, or run the code locally (see the GitHub README).";
 
 export type Snapshot = { state: State; history: History; turns: number };
 
@@ -20,11 +23,11 @@ export class Conversation {
   constructor(private paypal: PayPal, private tools: any[], private budget: DailyBudget, private perConversation: number, snap?: Snapshot) {
     this.state = snap?.state ?? newState();
     this.turns = snap?.turns ?? 0;
-    this.agent = createAgent(this.state, paypal, tools, snap?.history ?? []);
+    this.agent = createAgent(this.state, paypal, tools, snap?.history ?? [], () => budget.reserve());
   }
 
   snapshot(): Snapshot {
-    return { state: this.state, history: this.agent.history, turns: this.turns };
+    return { state: this.state, history: this.agent.settledHistory(), turns: this.turns };
   }
 
   get turnsLeft() {
@@ -32,15 +35,15 @@ export class Conversation {
   }
 
   async checkBudget() {
-    if (this.turns >= this.perConversation) throw new HttpError(429, "This demo conversation reached its message limit. Reload the page tomorrow, or run the code locally (see the GitHub README).");
+    if (this.turns >= this.perConversation) throw new HttpError(429, LIMIT_MSG);
     await this.budget.check();
   }
 
   private async say(text: string, kind: "customer" | "event") {
-    await this.checkBudget();
-    await this.budget.spend();
+    // Count the turn before any await, so two concurrent requests cannot both pass the per-conversation cap.
+    if (this.turns >= this.perConversation) throw new HttpError(429, LIMIT_MSG);
     this.turns++;
-    return this.agent.say(text, kind);
+    return this.agent.say(text, kind); // the daily budget is reserved per Claude call inside the agent
   }
 
   async customer(raw: unknown, maxLen: number) {
@@ -89,7 +92,7 @@ export class Conversation {
   // A fresh conversation keeps the turn count, so Start over cannot be used to dodge the limit.
   reset() {
     this.state = newState();
-    this.agent = createAgent(this.state, this.paypal, this.tools);
+    this.agent = createAgent(this.state, this.paypal, this.tools, [], () => this.budget.reserve());
   }
 
   // True while there is a sent, unpaid invoice worth polling.

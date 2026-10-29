@@ -15,7 +15,7 @@ const HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, ...(PUBLIC_HOST
 const DEMO = process.env.DEMO === "1"; // public demo: behind a proxy, with spending limits shown in the UI
 const LIMIT = {
   turnsPerConversation: Number(process.env.SESSION_TURN_CAP ?? 30),
-  turnsPerDay: Number(process.env.DAILY_TURN_CAP ?? 300),
+  turnsPerDay: Number(process.env.DAILY_CALL_CAP ?? 600),
   conversations: Number(process.env.MAX_SESSIONS ?? 200),
   newConversationsPerIpHour: 6,
 };
@@ -29,13 +29,15 @@ if (DEMO && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.DEMO_RECIPIENT_EMAIL 
 
 let day = new Date().toISOString().slice(0, 10);
 let turnsToday = 0;
+// Synchronous check-and-count, so concurrent requests cannot both slip under the cap.
+function dailyCheck() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== day) { day = today; turnsToday = 0; }
+  if (turnsToday >= LIMIT.turnsPerDay) throw new HttpError(429, "The live demo reached today's usage limit. The code runs locally in a few minutes: see the GitHub README.");
+}
 const budget: DailyBudget = {
-  async check() {
-    const today = new Date().toISOString().slice(0, 10);
-    if (today !== day) { day = today; turnsToday = 0; }
-    if (turnsToday >= LIMIT.turnsPerDay) throw new HttpError(429, "The live demo reached today's usage limit. The code runs locally in a few minutes: see the GitHub README.");
-  },
-  async spend() { turnsToday++; },
+  async check() { dailyCheck(); },
+  async reserve() { dailyCheck(); turnsToday++; },
 };
 
 type Session = { convo: Conversation; seen: number };

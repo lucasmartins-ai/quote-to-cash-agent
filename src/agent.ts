@@ -40,17 +40,22 @@ If a tool returns an error, follow what it says and do not retry the same call u
 export type History = Anthropic.Beta.BetaMessageParam[];
 
 // `history` is passed in so a conversation can be saved and restored (Durable Object storage).
-export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic.Beta.BetaTool[], history: History = []) {
+// `beforeCall` runs before every Claude request (the hosted demo counts its daily budget in calls, not turns).
+export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic.Beta.BetaTool[], history: History = [], beforeCall: () => Promise<void> = async () => {}) {
+  // History up to the last finished turn. A snapshot taken mid-turn could hold a tool_use with no tool_result,
+  // which the API rejects forever after a restore.
+  let settled = history.length;
   const tools = [...LOCAL_TOOLS, ...paypalTools] as Anthropic.Beta.BetaTool[];
   let queue = Promise.resolve();
 
   async function turn(userText: string): Promise<string> {
     history.push({ role: "user", content: userText });
     for (let step = 0; step < 12; step++) {
+      await beforeCall();
       client ??= new Anthropic();
       const res = await client.beta.messages.create({
         model: MODEL(),
-        max_tokens: 16000,
+        max_tokens: Number(process.env.MAX_TOKENS ?? 16000),
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         output_config: { effort: EFFORT() },
@@ -89,13 +94,20 @@ export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic
   // ponytail: one global queue, so a shop event never interleaves with a customer turn. Fine for one chat.
   function say(text: string, kind: "customer" | "event"): Promise<string> {
     const run = queue.then(async () => {
-      const reply = await turn(kind === "event" ? `[SHOP EVENT] ${text}` : text);
-      if (reply) state.chat.push({ from: "agent", text: reply, at: new Date().toISOString() });
-      return reply;
+      try {
+        const reply = await turn(kind === "event" ? `[SHOP EVENT] ${text}` : text);
+        if (reply) state.chat.push({ from: "agent", text: reply, at: new Date().toISOString() });
+        return reply;
+      } catch (err) {
+        history.length = settled; // drop the half-finished exchange so the next turn starts from a valid history
+        throw err;
+      } finally {
+        settled = history.length;
+      }
     });
     queue = run.then(() => undefined, () => undefined);
     return run;
   }
 
-  return { say, history };
+  return { say, history, settledHistory: () => history.slice(0, settled) };
 }

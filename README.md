@@ -72,7 +72,7 @@ Set `DEMO=1` to run it for strangers: each visitor gets their own conversation (
 | `DEMO` | off | `1` turns on per-visitor sessions, limits and the demo notice |
 | `DEMO_RECIPIENT_EMAIL` | required with `DEMO=1` | every invoice goes to this sandbox address, never to what a visitor types |
 | `SESSION_TURN_CAP` | 30 | agent turns per conversation (Start over keeps the count) |
-| `DAILY_TURN_CAP` | 300 | agent turns per day across everyone |
+| `DAILY_CALL_CAP` | 600 | Claude API calls per day across everyone (a turn can take several) |
 | `MAX_SESSIONS` | 200 | conversations kept in memory; idle ones expire after 2 h |
 | `MODEL`, `EFFORT` | `claude-opus-5-5`, `low` | the Claude model and effort; the hosted demo runs `claude-haiku-5-5` at `medium` |
 | `HOST`, `PUBLIC_HOST` | `127.0.0.1`, none | bind address and the public host name the server accepts |

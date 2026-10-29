@@ -340,8 +340,19 @@ $("send").onsubmit = (e) => { e.preventDefault(); const t = $("text").value.trim
 $("overdue").onclick = () => post("/api/simulate-overdue");
 $("reset").onclick = () => confirm("Start over with an empty chat?") && post("/api/reset");
 
-refresh();
-setInterval(refresh, 1500);
+// Poll fast only while something is happening, slowly otherwise, and not at all in a background tab.
+// The first request finishes before the next starts, so a cold start never opens two sessions.
+let looping = false;
+async function loop() {
+  if (document.hidden) { looping = false; return; }
+  looping = true;
+  await refresh();
+  const inv = S?.invoice;
+  const active = busy || (inv && inv.status !== "DRAFT" && !/PAID/.test(inv.status));
+  setTimeout(loop, active ? 1500 : 5000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !looping) loop(); });
+loop();
 </script>
 </body>
 </html>

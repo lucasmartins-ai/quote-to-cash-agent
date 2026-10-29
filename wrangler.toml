@@ -2,6 +2,8 @@ name = "quote-to-cash-demo"
 main = "src/worker.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+routes = [{ pattern = "quote-to-cash.lookadev.com/*", zone_name = "lookadev.com" }]
 
 [[rules]]
 type = "Text"
@@ -28,5 +30,6 @@ DEMO = "1"
 DEMO_RECIPIENT_EMAIL = "demo-customer@example.com"
 PAYPAL_ENVIRONMENT = "sandbox"
 SESSION_TURN_CAP = "30"
-DAILY_TURN_CAP = "300"
-PUBLIC_HOSTS = "quote-to-cash-demo.vetlucasmartins.workers.dev,localhost:8787"
+DAILY_CALL_CAP = "600"
+MAX_TOKENS = "4000"
+PUBLIC_HOSTS = "quote-to-cash.lookadev.com,localhost:8787"
