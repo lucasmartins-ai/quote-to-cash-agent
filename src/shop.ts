@@ -1,6 +1,7 @@
 // The shop's state and every tool the agent can call. The gates live here, in code:
 // prices come from the catalogue, nothing is invoiced before the owner approves the quote,
-// and a payment is only recorded after the owner confirms the money arrived.
+// a payment is only recorded after the owner confirms the money arrived, and a repeating plan is built
+// by the server from the approved quote.
 import catalog from "./catalog.json" with { type: "json" };
 
 export type PayPal = (tool: string, input: Record<string, unknown>) => Promise<unknown>;
@@ -13,10 +14,36 @@ export type OwnerEvent = { id: number; kind: "quote" | "payment" | "info"; text:
 export type State = {
   chat: ChatMsg[];
   owner: OwnerEvent[];
-  quote?: { lines: Line[]; total: string; note: string; status: "pending" | "approved" | "rejected" };
+  quote?: { lines: Line[]; total: string; note: string; status: "pending" | "approved" | "rejected"; repeat?: Repeat };
   invoice?: { id: string; status: string; payUrl?: string; notifiedPaid?: boolean };
   paymentClaim?: { method: string; customerSaid: string; status: "pending" | "confirmed" | "rejected" };
+  series?: { id: string; status: string; everyWeeks: number; start: string; cycles: number };
 };
+export type Repeat = { everyWeeks: 1 | 2 | 4; start: string };
+
+const today = () => new Date().toISOString().slice(0, 10);
+const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 86400_000).toISOString().slice(0, 10);
+
+// A repeating plan: weekly, fortnightly or every four weeks, starting tomorrow at the earliest and within 60 days.
+export function checkRepeat(items: { service_id: string }[], every: unknown, start: unknown): Repeat {
+  if (![1, 2, 4].includes(Number(every))) throw new Error("repeat_every_weeks must be 1, 2 or 4.");
+  const s = String(start ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(Date.parse(s))) throw new Error("start_date must be a date in YYYY-MM-DD format.");
+  if (s <= today() || s > addDays(today(), 60)) throw new Error(`start_date must be between ${addDays(today(), 1)} and ${addDays(today(), 60)}.`);
+  const notRepeatable = items.filter((i) => !catalog.services.find((x) => x.id === i.service_id)?.recurring).map((i) => i.service_id);
+  if (notRepeatable.length) throw new Error(`These services cannot be booked as a repeating plan: ${notRepeatable.join(", ")}. Repeatable: ${catalog.services.filter((x) => x.recurring).map((x) => x.id).join(", ")}.`);
+  return { everyWeeks: Number(every) as Repeat["everyWeeks"], start: s };
+}
+
+// Who to bill. Public demo: everything goes to one sandbox address, so visitors cannot make it email strangers.
+function recipient(input: any) {
+  const name = String(input.customer_name ?? "").trim();
+  const email = String(input.customer_email ?? "").trim();
+  if (!name || name.length > 100) throw new Error("customer_name is required (max 100 characters).");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error("customer_email must be a valid email address.");
+  const [given, ...rest] = name.split(/\s+/);
+  return [{ billing_info: { name: { given_name: given, surname: rest.join(" ") || undefined }, email_address: process.env.DEMO_RECIPIENT_EMAIL || email } }];
+}
 
 export const newState = (): State => ({ chat: [], owner: [] });
 
@@ -53,14 +80,16 @@ const invoiceIdIn = (x: unknown) => JSON.stringify(x).match(/INV2(?:-[A-Z0-9]{4}
 export async function handleTool(s: State, paypal: PayPal, name: string, input: any): Promise<string> {
   switch (name) {
     case "propose_quote": {
-      if (s.invoice) throw new Error("An invoice already exists for this conversation.");
+      if (s.invoice || s.series) throw new Error("This conversation already has an invoice or a plan.");
       const { lines, total } = priceQuote(input.items ?? []);
+      const repeat = input.repeat_every_weeks != null ? checkRepeat(input.items, input.repeat_every_weeks, input.start_date) : undefined;
       // A new quote supersedes any open one, so an old Approve button cannot approve it.
       for (const e of s.owner) if (e.kind === "quote" && e.status === "open") e.status = "done";
-      s.quote = { lines, total, note: String(input.note ?? "").slice(0, 500), status: "pending" };
+      s.quote = { lines, total, note: String(input.note ?? "").slice(0, 500), status: "pending", repeat };
       const summary = lines.map((l) => `${l.quantity} × ${l.name} @ £${l.unit_amount.value}`).join("; ");
-      ownerEvent(s, "quote", `Quote for £${total}: ${summary}${input.note ? ` (${input.note})` : ""}`);
-      return `Quote of £${total} sent to the owner for approval. Tell the customer the total and that you will confirm shortly. Do not create an invoice yet.`;
+      const plan = repeat ? ` every ${repeat.everyWeeks === 1 ? "week" : `${repeat.everyWeeks} weeks`} from ${repeat.start}` : "";
+      ownerEvent(s, "quote", `Quote for £${total}${plan}: ${summary}${input.note ? ` (${input.note})` : ""}`);
+      return `Quote of £${total}${plan} sent to the owner for approval. Tell the customer the total and that you will confirm shortly. Do not create an invoice or plan yet.`;
     }
 
     case "ask_owner_to_confirm_payment": {
@@ -74,25 +103,46 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
 
     case "create_invoice": {
       if (s.quote?.status !== "approved") throw new Error("The owner has not approved a quote yet. Wait for approval.");
+      if (s.quote.repeat) throw new Error("This quote is a repeating plan. Use create_recurring_plan instead.");
       if (s.invoice) throw new Error(`Invoice ${s.invoice.id} already exists. Send that one.`);
       // The model only supplies who to bill. Everything that touches money (lines, currency,
       // shipping, tips, partial payment) is never taken from its input.
-      const name = String(input.customer_name ?? "").trim();
-      const email = String(input.customer_email ?? "").trim();
-      if (!name || name.length > 100) throw new Error("customer_name is required (max 100 characters).");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error("customer_email must be a valid email address.");
-      const [given, ...rest] = name.split(/\s+/);
       const result = await paypal("create_invoice", {
         currency_code: catalog.currency,
         items: s.quote.lines,
         invoicer_business_name: catalog.business,
-        // Public demo: invoices always go to one sandbox address, so visitors cannot make it email strangers.
-        primary_recipients: [{ billing_info: { name: { given_name: given, surname: rest.join(" ") || undefined }, email_address: process.env.DEMO_RECIPIENT_EMAIL || email } }],
+        primary_recipients: recipient(input),
       });
       const id = invoiceIdIn(result);
       if (!id) throw new Error(`PayPal did not return an invoice id: ${JSON.stringify(result).slice(0, 300)}`);
       s.invoice = { id, status: "DRAFT" };
       return `Draft invoice ${id} created for £${s.quote.total}. Now send it with send_invoice.`;
+    }
+
+    case "create_recurring_plan": {
+      if (s.quote?.status !== "approved") throw new Error("The owner has not approved a quote yet. Wait for approval.");
+      const repeat = s.quote.repeat;
+      if (!repeat) throw new Error("The approved quote is a one-off job. Use create_invoice instead.");
+      if (s.series) throw new Error(`Plan ${s.series.id} is already set up.`);
+      if (repeat.start <= today()) throw new Error("The plan's start date has passed. Ask the customer for a new date and propose the quote again.");
+      // Every cycle, amount and date comes from the approved quote; the model only says who to bill.
+      const cycles = Number(process.env.PLAN_MAX_CYCLES ?? 12);
+      const created: any = await paypal("create_recurring_series", {
+        interval_unit: "WEEK",
+        interval_count: repeat.everyWeeks,
+        start_series_date: repeat.start,
+        total_cycles: cycles,
+        currency_code: catalog.currency,
+        invoicer_business_name: catalog.business,
+        items: s.quote.lines,
+        primary_recipients: recipient(input),
+      });
+      const id = String(created?.id ?? "");
+      if (!/^RI-[A-Z0-9]+$/.test(id)) throw new Error(`PayPal did not return a plan id: ${JSON.stringify(created).slice(0, 300)}`);
+      await paypal("activate_recurring_series", { recurring_series_id: id });
+      s.series = { id, status: "ACTIVE", everyWeeks: repeat.everyWeeks, start: repeat.start, cycles };
+      ownerEvent(s, "info", `Plan ${id} active: £${s.quote.total} every ${repeat.everyWeeks === 1 ? "week" : `${repeat.everyWeeks} weeks`} from ${repeat.start}, ${cycles} invoices.`);
+      return `Plan ${id} is active. PayPal will email an invoice for £${s.quote.total} on ${repeat.start} and then every ${repeat.everyWeeks === 1 ? "week" : `${repeat.everyWeeks} weeks`} (${cycles} visits). Tell the customer, plainly.`;
     }
 
     case "send_invoice": {
@@ -148,7 +198,7 @@ function assertOurs(s: State, id: unknown) {
   if (id !== s.invoice.id) throw new Error(`Only invoice ${s.invoice.id} belongs to this conversation.`);
 }
 
-// create_invoice gets our own narrow schema; the rest use the PayPal Agent Toolkit's schemas.
+// create_invoice and create_recurring_plan get our own narrow schemas; the rest use the PayPal Agent Toolkit's schemas.
 export const PAYPAL_TOOLS = ["send_invoice", "get_invoice", "send_invoice_reminder", "record_payment_for_invoice"];
 
 const CREATE_INVOICE_TOOL = {
@@ -187,6 +237,8 @@ export const LOCAL_TOOLS = [
           },
         },
         note: { type: "string", description: "Date, address or anything the owner should know." },
+        repeat_every_weeks: { type: "integer", enum: [1, 2, 4], description: "Only for a regular booking (weekly, fortnightly, every four weeks). Leave out for a one-off job." },
+        start_date: { type: "string", description: "First visit of a regular booking, YYYY-MM-DD. Required with repeat_every_weeks." },
       },
       required: ["items"],
       additionalProperties: false,
@@ -207,10 +259,16 @@ export const LOCAL_TOOLS = [
     },
   },
   CREATE_INVOICE_TOOL,
+  {
+    name: "create_recurring_plan",
+    description:
+      "Set up the approved repeating plan in PayPal: a recurring invoice series that bills the customer automatically every cycle. Services, price, frequency and start date come from the approved quote; you only say who to bill.",
+    input_schema: CREATE_INVOICE_TOOL.input_schema,
+  },
 ];
 
 export function catalogText(): string {
-  return catalog.services.map((x) => `- ${x.id}: ${x.name}, £${x.price} ${x.unit}`).join("\n");
+  return catalog.services.map((x) => `- ${x.id}: ${x.name}, £${x.price} ${x.unit}${x.recurring ? " (can repeat)" : ""}`).join("\n");
 }
 
 export { catalog };

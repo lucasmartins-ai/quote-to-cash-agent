@@ -103,3 +103,36 @@ test("in the public demo the invoice goes to the fixed sandbox address", async (
     Reflect.deleteProperty(process.env, "DEMO_RECIPIENT_EMAIL");
   }
 });
+
+const inDays = (n: number) => new Date(Date.now() + n * 86400_000).toISOString().slice(0, 10);
+
+test("a repeating plan is built from the approved quote, and only after approval", async () => {
+  const { run } = mockPayPal();
+  const s = newState();
+  await handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 2, start_date: inDays(3) });
+  await assert.rejects(handleTool(s, run, "create_recurring_plan", bill), /not approved/);
+  await assert.rejects(handleTool(s, run, "create_invoice", bill), /not approved/);
+  s.quote!.status = "approved";
+  await assert.rejects(handleTool(s, run, "create_invoice", bill), /repeating plan/);
+  const seen: any[] = [];
+  const spy = async (n: string, i: any) => (seen.push([n, i]), run(n, i));
+  await handleTool(s, spy, "create_recurring_plan", { ...bill, interval_count: 1, total_cycles: 99, items: [{ name: "x", quantity: "1", unit_amount: { currency_code: "GBP", value: "1.00" } }] });
+  const [name, payload] = seen[0];
+  assert.equal(name, "create_recurring_series");
+  assert.equal(payload.interval_count, 2);
+  assert.equal(payload.start_series_date, inDays(3));
+  assert.equal(payload.items[0].unit_amount.value, "75.00");
+  assert.equal(payload.total_cycles, 12);
+  assert.equal(seen[1][0], "activate_recurring_series");
+  assert.match(s.series!.id, /^RI-/);
+  await assert.rejects(handleTool(s, run, "create_recurring_plan", bill), /already set up/);
+});
+
+test("only repeatable services, and a start date inside the window, can become a plan", async () => {
+  const { run } = mockPayPal();
+  const s = newState();
+  await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "deep-clean", quantity: 1 }], repeat_every_weeks: 2, start_date: inDays(3) }), /cannot be booked as a repeating plan/);
+  await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 3, start_date: inDays(3) }), /must be 1, 2 or 4/);
+  await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 1, start_date: inDays(0) }), /start_date must be between/);
+  await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 1, start_date: inDays(90) }), /start_date must be between/);
+});

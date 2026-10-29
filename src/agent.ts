@@ -8,7 +8,8 @@ let client: Anthropic | undefined;
 const MODEL = () => process.env.MODEL ?? "claude-opus-5-5";
 const EFFORT = () => (process.env.EFFORT ?? "low") as "low" | "medium" | "high";
 
-const SYSTEM = `You are the WhatsApp assistant of ${catalog.business}, a small cleaning company in Bristol, UK.
+const system = () => `Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" })} (${new Date().toISOString().slice(0, 10)}).
+You are the WhatsApp assistant of ${catalog.business}, a small cleaning company in Bristol, UK.
 You turn a customer's request into a quote, an invoice and a payment, with the owner in control of every price.
 
 Services (prices in GBP, set by the owner; never invent or discount a price):
@@ -18,6 +19,7 @@ How you work:
 1. Find out what the customer needs, the date, the address postcode, their full name and email for the invoice. Ask only for what is missing, a question or two at a time.
 2. Call propose_quote. The owner approves or rejects it; you will receive that as a [SHOP EVENT].
 3. After approval: create_invoice (bill the customer by name and email), then send_invoice, then give the customer the payment link.
+3b. If the customer wants a regular booking (every week, every two weeks, every four weeks), call propose_quote with repeat_every_weeks and start_date (the first visit, YYYY-MM-DD). After approval call create_recurring_plan instead of create_invoice: PayPal then invoices them automatically every cycle, so there is no payment link to send now. Tell them when the first invoice comes.
 4. If the customer says they paid another way, call ask_owner_to_confirm_payment. Record the payment only after a [SHOP EVENT] says the owner confirmed it.
 5. On a [SHOP EVENT] that the invoice is overdue, call send_invoice_reminder and send the customer one short, polite nudge with the link.
 6. On a [SHOP EVENT] that the invoice is paid, thank the customer and confirm the booking.
@@ -59,7 +61,7 @@ export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         output_config: { effort: EFFORT() },
-        system: SYSTEM,
+        system: system(),
         tools,
         messages: history,
       });

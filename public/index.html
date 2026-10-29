@@ -230,8 +230,10 @@
 const $ = (id) => document.getElementById(id);
 const SUGGEST = [
   "Hi, I'm moving out of my flat in Clifton next Friday. Can you do an end of tenancy clean and the oven? It's 2 bedrooms.",
-  "How much for a deep clean of a 3-bed house this Saturday?",
+  "Could you do a regular clean of my 3-bed house in Redland every two weeks, starting next Monday?",
 ];
+const every = (n) => (n === 1 ? "every week" : `every ${n} weeks`);
+const day = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 let S = null, busy = false;
 const painted = {};
 
@@ -262,6 +264,7 @@ async function post(path, data) {
 
 function stage(s) {
   const inv = s.invoice, q = s.quote;
+  if (s.series) return 4;
   if (inv && /PAID/.test(inv.status)) return 4;
   if (inv && inv.status !== "DRAFT") return 3;
   if (q?.status === "approved") return 2;
@@ -283,7 +286,10 @@ function render() {
 
   // Progress rail
   const st = stage(s);
-  const steps = [["Quote", "priced from your list"], ["Approved", "by you"], ["Invoiced", "sent via PayPal"], ["Paid", "money in"]];
+  const plan = s.quote?.repeat;
+  const steps = plan
+    ? [["Quote", "priced from your list"], ["Approved", "by you"], ["Plan set up", "recurring in PayPal"], ["Repeats", "billed automatically"]]
+    : [["Quote", "priced from your list"], ["Approved", "by you"], ["Invoiced", "sent via PayPal"], ["Paid", "money in"]];
   paint("rail", steps.map(([t, d], i) => `<div class="step ${i < st ? "done" : i === st && st < 4 ? "now" : ""}"><b>${t}</b>${d}</div>`).join(""));
 
   // Needs you
@@ -291,24 +297,34 @@ function render() {
   $("needs-count").textContent = open.length ? `${open.length} waiting` : "";
   paint("needs", open.length ? open.map((e) => e.kind === "quote" && s.quote ? `
       <div class="card ask"><span class="tag">Approve price</span>
-        <h3>New job, ${money(s.quote.total)}</h3>
+        <h3>${s.quote.repeat ? `Regular plan, ${money(s.quote.total)} ${every(s.quote.repeat.everyWeeks)}` : `New job, ${money(s.quote.total)}`}</h3>
+        ${s.quote.repeat ? `<p>First visit ${esc(day(s.quote.repeat.start))}. PayPal will bill each visit automatically.</p>` : ""}
         ${s.quote.note ? `<p>${esc(s.quote.note)}</p>` : ""}
         <table class="lines">${s.quote.lines.map((l) => `<tr><td>${l.quantity} × ${esc(l.name)}<small>${esc(l.description)}</small></td><td class="mono">${money(Number(l.unit_amount.value) * Number(l.quantity))}</td></tr>`).join("")}
           <tfoot><tr><td>Total</td><td class="mono">${money(s.quote.total)}</td></tr></tfoot></table>
-        <div class="actions"><button class="btn go" data-a="approve_quote" data-id="${e.id}">Approve and invoice</button><button class="btn ghost" data-a="reject_quote" data-id="${e.id}">I'll call them</button></div>
+        <div class="actions"><button class="btn go" data-a="approve_quote" data-id="${e.id}">${s.quote.repeat ? "Approve plan" : "Approve and invoice"}</button><button class="btn ghost" data-a="reject_quote" data-id="${e.id}">I'll call them</button></div>
       </div>` : `
       <div class="card ask"><span class="tag">Check your bank</span>
         <h3>${esc(e.text)}</h3>
         <p>The agent won't mark it paid until you confirm.</p>
         <div class="actions"><button class="btn go" data-a="confirm_payment" data-id="${e.id}">Money arrived</button><button class="btn ghost" data-a="reject_payment" data-id="${e.id}">Not yet</button></div>
       </div>`).join("")
-    : `<div class="card calm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.6 2.5L16 9.5"/></svg><div>${st === 0 ? "Nothing to do. When a customer asks for a job, the priced quote lands here for your OK." : st === 4 ? "All done. This job is paid." : "Nothing needs you. The agent is handling the customer."}</div></div>`);
+    : `<div class="card calm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.6 2.5L16 9.5"/></svg><div>${st === 0 ? "Nothing to do. When a customer asks for a job, the priced quote lands here for your OK." : st === 4 ? (s.series ? "All set. PayPal bills this customer automatically from now on." : "All done. This job is paid.") : "Nothing needs you. The agent is handling the customer."}</div></div>`);
   document.querySelectorAll("[data-a]").forEach((b) => { b.disabled = busy; b.onclick = () => post("/api/owner", { action: b.dataset.a, id: Number(b.dataset.id) }); });
 
   // Invoice receipt
   const q = s.quote, inv = s.invoice;
   const paid = inv && /PAID/.test(inv.status);
-  paint("invoice", inv && q ? `
+  const ser = s.series;
+  paint("invoice", ser && q ? `
+    <div class="receipt">
+      <div class="head"><div><b>Harbourside Cleaning</b><small class="mono">${esc(ser.id)}</small></div>
+        <span class="status paid">Plan active</span></div>
+      <table class="lines">${q.lines.map((l) => `<tr><td>${l.quantity} × ${esc(l.name)}</td><td class="mono">${money(Number(l.unit_amount.value) * Number(l.quantity))}</td></tr>`).join("")}
+        <tfoot><tr><td>Each visit</td><td class="mono">${money(q.total)}</td></tr></tfoot></table>
+      <p class="placeholder">Invoiced ${every(ser.everyWeeks)} from ${esc(day(ser.start))}, ${ser.cycles} visits. PayPal sends each invoice on its own.</p>
+    </div>`
+    : inv && q ? `
     <div class="receipt">
       <div class="head"><div><b>Harbourside Cleaning</b><small class="mono">${esc(inv.id)}</small></div>
         <span class="status ${paid ? "paid" : inv.status === "DRAFT" ? "" : "wait"}">${paid ? "Paid" : inv.status === "DRAFT" ? "Draft" : "Awaiting payment"}</span></div>
