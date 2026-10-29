@@ -33,8 +33,19 @@ export function realPayPal(clientId: string, clientSecret: string): PayPal {
         break;
       }
     }
-    return out;
+    return failIfError(out);
   };
+}
+
+// The toolkit returns failures as values ({ok:false,...} or {error:{...}}) instead of throwing.
+// Turn them into exceptions so no caller can mistake a PayPal rejection for success.
+export function failIfError(out: unknown): unknown {
+  const o = out as any;
+  if (o && typeof o === "object" && (o.ok === false || (o.error && !o.id))) {
+    const msg = o.message ?? o.error?.message ?? o.code ?? "unknown error";
+    throw new Error(`PayPal rejected the request: ${String(msg).slice(0, 300)}`);
+  }
+  return out;
 }
 
 export function mockPayPal() {
@@ -58,7 +69,7 @@ export function mockPayPal() {
           id: input.invoice_id,
           status: inv.status,
           due_amount: { value: inv.status === "SENT" ? inv.total : "0.00" },
-          detail: { metadata: { recipient_view_url: `http://localhost:${process.env.PORT ?? 3000}/pay/${input.invoice_id}` } },
+          detail: { metadata: { recipient_view_url: `${process.env.PUBLIC_HOST ? `https://${process.env.PUBLIC_HOST}` : `http://localhost:${process.env.PORT ?? 3000}`}/pay/${input.invoice_id}` } },
         };
       }
       case "send_invoice_reminder":

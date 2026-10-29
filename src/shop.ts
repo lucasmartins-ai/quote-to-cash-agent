@@ -64,6 +64,8 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
 
     case "ask_owner_to_confirm_payment": {
       if (!s.invoice) throw new Error("There is no invoice to pay.");
+      // A new claim supersedes any open one, so an old "Money arrived" button cannot confirm it.
+      for (const e of s.owner) if (e.kind === "payment" && e.status === "open") e.status = "done";
       s.paymentClaim = { method: input.method, customerSaid: input.customer_said, status: "pending" };
       ownerEvent(s, "payment", `Customer says they paid by ${input.method}: "${input.customer_said}". Did the money arrive?`);
       return "The owner has been asked to check the account. Tell the customer you are checking and will confirm. Do not record the payment yet.";

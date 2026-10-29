@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mockPayPal } from "./paypal.ts";
+import { failIfError, mockPayPal } from "./paypal.ts";
 import { handleTool, newState, priceQuote } from "./shop.ts";
 
 const bill = { customer_name: "Sam Taylor", customer_email: "sam@example.com" };
@@ -68,4 +68,23 @@ test("a new quote closes the previous quote's approval item", async () => {
   const open = s.owner.filter((e) => e.kind === "quote" && e.status === "open");
   assert.equal(open.length, 1);
   assert.match(open[0].text, /220\.00/);
+});
+
+test("a PayPal rejection returned as a value becomes an error", () => {
+  assert.throws(() => failIfError({ ok: false, status: 422, code: "UNPROCESSABLE_ENTITY", message: "bad amount" }), /PayPal rejected.*bad amount/);
+  assert.throws(() => failIfError({ error: { message: "boom", type: "paypal_error" } }), /PayPal rejected.*boom/);
+  assert.deepEqual(failIfError({ id: "INV2-AAAA-BBBB-CCCC-DDDD", status: "SENT" }), { id: "INV2-AAAA-BBBB-CCCC-DDDD", status: "SENT" });
+});
+
+test("a new payment claim closes the previous Money arrived item", async () => {
+  const { run } = mockPayPal();
+  const s = newState();
+  await handleTool(s, run, "propose_quote", { items: [{ service_id: "oven", quantity: 1 }] });
+  s.quote!.status = "approved";
+  await handleTool(s, run, "create_invoice", bill);
+  await handleTool(s, run, "ask_owner_to_confirm_payment", { method: "BANK_TRANSFER", customer_said: "sent it" });
+  await handleTool(s, run, "ask_owner_to_confirm_payment", { method: "CASH", customer_said: "paid cash" });
+  const open = s.owner.filter((e) => e.kind === "payment" && e.status === "open");
+  assert.equal(open.length, 1);
+  assert.match(open[0].text, /CASH/);
 });

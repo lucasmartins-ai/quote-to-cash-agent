@@ -52,9 +52,11 @@ async function ownerAction(action: string, eventId: number) {
 
 // Payment watcher: polls the invoice and tells the agent once it is paid on PayPal.
 async function checkPayment() {
-  const inv = state.invoice;
+  const s = state;
+  const inv = s.invoice;
   if (!inv || inv.notifiedPaid || inv.status === "DRAFT") return;
   const detail: any = await paypal("get_invoice", { invoice_id: inv.id });
+  if (state !== s) return; // "Start over" happened while waiting: this answer belongs to the old conversation
   inv.status = detail?.status ?? inv.status;
   if (isPaid(inv.status)) {
     inv.notifiedPaid = true;

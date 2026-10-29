@@ -47,7 +47,13 @@ export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic
 
       if (res.stop_reason === "refusal") return "Sorry, I can't help with that here. The owner will get back to you.";
       const calls = res.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
-      if (res.stop_reason !== "tool_use" || !calls.length) {
+      if (calls.length && res.stop_reason !== "tool_use") {
+        // Cut off (max_tokens) mid tool call: every tool_use needs a result before the next request,
+        // and the input may be truncated, so answer each with an error and let the model call again.
+        history.push({ role: "user", content: calls.map((c) => ({ type: "tool_result" as const, tool_use_id: c.id, content: "Your reply was cut off before this call finished. Make the call again.", is_error: true })) });
+        continue;
+      }
+      if (!calls.length) {
         return res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n").trim();
       }
 
