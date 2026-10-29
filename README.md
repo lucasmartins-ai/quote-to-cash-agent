@@ -4,6 +4,8 @@ A chat agent that turns a customer's WhatsApp-style conversation into a PayPal i
 
 Built for the PayPal AI Hackathon 2026 with [Claude](https://www.anthropic.com/claude) and the [PayPal Agent Toolkit](https://github.com/paypal/agent-toolkit).
 
+**Try it live: [quote-to-cash.lookadev.com](https://quote-to-cash.lookadev.com)** — runs on the PayPal sandbox (no real money), with Claude Haiku 5.5 to keep it fast. Invoices from the live demo go to a fixed test address.
+
 ## The problem
 
 Small service businesses (cleaners, repairers, tutors) sell over chat. The owner answers "how much for…", works out a price, writes an invoice somewhere else, sends a link, then chases the payment days later. Most of that is copy and paste, and the chasing is the part that gets forgotten.
