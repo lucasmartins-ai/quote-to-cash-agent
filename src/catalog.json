@@ -1,0 +1,12 @@
+{
+  "business": "Harbourside Cleaning (demo)",
+  "currency": "GBP",
+  "services": [
+    { "id": "regular-clean", "name": "Regular home clean", "unit": "per visit (up to 3 hours)", "price": "75.00" },
+    { "id": "deep-clean", "name": "Deep clean", "unit": "per property (up to 3 bedrooms)", "price": "220.00" },
+    { "id": "end-of-tenancy", "name": "End-of-tenancy clean", "unit": "per property (up to 3 bedrooms)", "price": "320.00" },
+    { "id": "oven", "name": "Oven clean", "unit": "per oven", "price": "65.00" },
+    { "id": "carpet-room", "name": "Carpet steam clean", "unit": "per room", "price": "45.00" },
+    { "id": "windows", "name": "Interior windows", "unit": "per property", "price": "40.00" }
+  ]
+}

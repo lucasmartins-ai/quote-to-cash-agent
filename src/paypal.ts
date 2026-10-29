@@ -1,0 +1,75 @@
+// Real PayPal (sandbox) through the PayPal Agent Toolkit, or an in-memory stand-in when no
+// credentials are set, so the demo and the tests run without an account.
+import { PayPalAgentToolkit } from "@paypal/agent-toolkit/bedrock";
+import { PAYPAL_TOOLS, type PayPal } from "./shop.ts";
+
+const toolkitFor = (clientId: string, clientSecret: string) =>
+  new PayPalAgentToolkit({
+    clientId,
+    clientSecret,
+    configuration: {
+      actions: { invoices: { create: true, send: true, get: true, sendReminder: true, recordPayment: true } },
+      context: { sandbox: process.env.PAYPAL_ENVIRONMENT !== "live" },
+    },
+  });
+
+// The toolkit's own JSON schemas are what the model sees for the PayPal tools, in both modes.
+export const paypalToolSchemas = () =>
+  toolkitFor("schema-only", "schema-only")
+    .getTools()
+    .filter((t) => PAYPAL_TOOLS.includes(t.toolSpec.name))
+    .map((t) => ({ name: t.toolSpec.name, description: t.toolSpec.description, input_schema: t.toolSpec.inputSchema.json }));
+
+export function realPayPal(clientId: string, clientSecret: string): PayPal {
+  const toolkit = toolkitFor(clientId, clientSecret);
+  return async (name, input) => {
+    const res = await toolkit.handleToolCall({ toolUseId: "x", name, input });
+    const text = res.content[0]?.text ?? "null";
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  };
+}
+
+export function mockPayPal() {
+  const invoices = new Map<string, { status: string; total: string }>();
+  let n = 0;
+  const id = () => `INV2-DEMO-${String(++n).padStart(4, "0")}-MOCK-PAYS`;
+  const run: PayPal = async (name, input: any) => {
+    switch (name) {
+      case "create_invoice": {
+        const inv = id();
+        const total = input.items.reduce((t: number, l: any) => t + Number(l.unit_amount.value) * Number(l.quantity), 0);
+        invoices.set(inv, { status: "DRAFT", total: total.toFixed(2) });
+        return { rel: "self", href: `https://api.sandbox.paypal.com/v2/invoicing/invoices/${inv}` };
+      }
+      case "send_invoice":
+        invoices.get(input.invoice_id)!.status = "SENT";
+        return { status: "SENT" };
+      case "get_invoice": {
+        const inv = invoices.get(input.invoice_id)!;
+        return {
+          id: input.invoice_id,
+          status: inv.status,
+          due_amount: { value: inv.status === "SENT" ? inv.total : "0.00" },
+          detail: { metadata: { recipient_view_url: `http://localhost:${process.env.PORT ?? 3000}/pay/${input.invoice_id}` } },
+        };
+      }
+      case "send_invoice_reminder":
+        return { status: "REMINDER_SENT" };
+      case "record_payment_for_invoice":
+        invoices.get(input.invoice_id)!.status = "MARKED_AS_PAID";
+        return { payment_id: "EXTR-MOCK" };
+      default:
+        throw new Error(`mock has no ${name}`);
+    }
+  };
+  // Stands in for the customer paying on PayPal's page.
+  const pay = (inv: string) => {
+    const x = invoices.get(inv);
+    if (x) x.status = "PAID";
+  };
+  return { run, pay };
+}

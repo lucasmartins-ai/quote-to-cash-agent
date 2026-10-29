@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quote-to-Cash Agent</title>
+<style>
+  :root {
+    --bg: #eae6df; --panel: #ffffff; --ink: #111b21; --muted: #667781; --line: #e2e2e2;
+    --wa-head: #075e54; --wa-bg: #efeae2; --me: #d9fdd3; --them: #ffffff; --accent: #0070e0; --ok: #1a7f37; --warn: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b141a; --panel: #111b21; --ink: #e9edef; --muted: #8696a0; --line: #222d34;
+      --wa-head: #202c33; --wa-bg: #0b141a; --me: #005c4b; --them: #202c33; --accent: #53a6ff; --ok: #3fb950; --warn: #ff7b72; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  main { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 20px; max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  .phone { background: var(--wa-bg); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; height: min(78vh, 760px); border: 1px solid var(--line); }
+  .phone header { background: var(--wa-head); color: #fff; padding: 12px 16px; }
+  .phone header small { opacity: .8; display: block; }
+  #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .msg { max-width: 82%; padding: 7px 10px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: 0 1px .5px rgba(0,0,0,.13); }
+  .customer { align-self: flex-end; background: var(--me); }
+  .agent { align-self: flex-start; background: var(--them); }
+  .msg a { color: var(--accent); }
+  .typing { align-self: flex-start; color: var(--muted); font-style: italic; padding: 4px 10px; }
+  form { display: flex; gap: 8px; padding: 10px; background: var(--panel); border-top: 1px solid var(--line); }
+  input { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 20px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; background: var(--accent); color: #fff; }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button.danger { background: transparent; color: var(--warn); border: 1px solid var(--warn); }
+  button:disabled { opacity: .5; cursor: default; }
+  .side { display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .event { border-top: 1px solid var(--line); padding: 10px 0; }
+  .event:first-child { border-top: 0; padding-top: 0; }
+  .event .when { color: var(--muted); font-size: 12px; }
+  .event .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .open { font-weight: 600; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+  .paid { color: var(--ok); font-weight: 600; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<main>
+  <section aria-label="Customer chat">
+    <div class="phone">
+      <header><strong>Harbourside Cleaning</strong><small>Customer's WhatsApp (simulated)</small></header>
+      <div id="chat" aria-live="polite"></div>
+      <form id="send">
+        <input id="text" autocomplete="off" placeholder="Type as the customer…" aria-label="Customer message">
+        <button>Send</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="side" aria-label="Owner panel">
+    <div class="card top">
+      <h1>Owner panel</h1>
+      <span class="badge" id="mode"></span>
+    </div>
+    <div class="card">
+      <h2>Needs you</h2>
+      <div id="events"></div>
+    </div>
+    <div class="card">
+      <h2>Invoice</h2>
+      <dl id="invoice"></dl>
+    </div>
+    <div class="card">
+      <h2>Demo controls</h2>
+      <div class="row">
+        <button class="secondary" id="overdue">Jump 7 days (unpaid)</button>
+        <button class="danger" id="reset">Reset demo</button>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let busy = false, last = "";
+
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const linkify = (s) => esc(s).replace(/https?:\/\/[^\s)]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+async function post(path, data) {
+  busy = true; render(window.__s);
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data ?? {}) });
+    const j = await r.json();
+    if (!r.ok) alert(j.error);
+  } finally { busy = false; refresh(); }
+}
+
+function render(s) {
+  if (!s) return;
+  window.__s = s;
+  $("mode").textContent = s.mode === "mock" ? "Mock PayPal" : "PayPal sandbox";
+  const chat = s.chat.map((m) => `<div class="msg ${m.from}">${linkify(m.text)}</div>`).join("") + (busy ? `<div class="typing">typing…</div>` : "");
+  if (chat !== last) { $("chat").innerHTML = chat; $("chat").scrollTop = 1e9; last = chat; }
+
+  const evs = [...s.owner].reverse();
+  $("events").innerHTML = evs.length ? evs.map((e) => `
+    <div class="event"><div class="${e.status === "open" ? "open" : ""}">${esc(e.text)}</div>
+    <div class="when">${time(e.at)}</div>
+    ${e.status === "open" ? `<div class="actions">${e.kind === "quote"
+      ? `<button data-a="approve_quote" data-id="${e.id}">Approve quote</button><button class="secondary" data-a="reject_quote" data-id="${e.id}">Reject</button>`
+      : `<button data-a="confirm_payment" data-id="${e.id}">Money arrived</button><button class="secondary" data-a="reject_payment" data-id="${e.id}">Not yet</button>`}</div>` : ""}
+    </div>`).join("") : `<p class="when">Nothing yet. Start the chat as the customer.</p>`;
+  document.querySelectorAll("[data-a]").forEach((b) => { b.disabled = busy; b.onclick = () => post("/api/owner", { action: b.dataset.a, id: Number(b.dataset.id) }); });
+
+  const q = s.quote, inv = s.invoice;
+  $("invoice").innerHTML = inv
+    ? `<dt>ID</dt><dd>${esc(inv.id)}</dd><dt>Total</dt><dd>£${q ? q.total : "?"}</dd>
+       <dt>Status</dt><dd class="${/PAID/.test(inv.status) ? "paid" : ""}">${esc(inv.status)}</dd>
+       ${inv.payUrl ? `<dt>Pay link</dt><dd><a href="${esc(inv.payUrl)}" target="_blank" rel="noopener">open</a></dd>` : ""}`
+    : q ? `<dt>Quote</dt><dd>£${q.total} (${q.status})</dd>` : `<dt>Status</dt><dd>No invoice yet</dd>`;
+  $("overdue").disabled = busy || !inv || /PAID|DRAFT/.test(inv.status);
+  $("send").querySelector("button").disabled = busy;
+}
+
+async function refresh() {
+  try { render(await (await fetch("/api/state")).json()); } catch {}
+}
+
+$("send").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("text").value.trim();
+  if (!text || busy) return;
+  $("text").value = "";
+  window.__s.chat.push({ from: "customer", text, at: new Date().toISOString() });
+  post("/api/customer", { text });
+};
+$("overdue").onclick = () => post("/api/simulate-overdue");
+$("reset").onclick = () => confirm("Clear the conversation?") && post("/api/reset");
+
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>
