@@ -100,6 +100,6 @@ test("in the public demo the invoice goes to the fixed sandbox address", async (
     await handleTool(s, async (n, i) => (seen.push(i), run(n, i)), "create_invoice", { customer_name: "Eve", customer_email: "stranger@example.com" });
     assert.equal(seen[0].primary_recipients[0].billing_info.email_address, "buyer@sandbox.example");
   } finally {
-    delete process.env.DEMO_RECIPIENT_EMAIL;
+    Reflect.deleteProperty(process.env, "DEMO_RECIPIENT_EMAIL");
   }
 });

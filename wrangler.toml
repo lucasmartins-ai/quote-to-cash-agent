@@ -1,0 +1,32 @@
+name = "quote-to-cash-demo"
+main = "src/worker.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
+[[durable_objects.bindings]]
+name = "CONVO"
+class_name = "ConversationDO"
+
+[[durable_objects.bindings]]
+name = "BUDGET"
+class_name = "BudgetDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ConversationDO", "BudgetDO"]
+
+# Not secrets. ANTHROPIC_API_KEY, PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET go in with `wrangler secret put`.
+[vars]
+MODEL = "claude-haiku-5-5"
+EFFORT = "medium"
+DEMO = "1"
+DEMO_RECIPIENT_EMAIL = "demo-customer@example.com"
+PAYPAL_ENVIRONMENT = "sandbox"
+SESSION_TURN_CAP = "30"
+DAILY_TURN_CAP = "300"
+PUBLIC_HOSTS = "quote-to-cash-demo.vetlucasmartins.workers.dev,localhost:8787"

@@ -21,9 +21,10 @@ export type State = {
 export const newState = (): State => ({ chat: [], owner: [] });
 
 const now = () => new Date().toISOString();
-let eventId = 0;
 export function ownerEvent(s: State, kind: OwnerEvent["kind"], text: string): OwnerEvent {
-  const e: OwnerEvent = { id: ++eventId, kind, text, status: kind === "info" ? "done" : "open", at: now() };
+  // Ids come from the conversation itself, so a restored conversation keeps counting where it left off.
+  const id = s.owner.reduce((m, e) => Math.max(m, e.id), 0) + 1;
+  const e: OwnerEvent = { id, kind, text, status: kind === "info" ? "done" : "open", at: now() };
   s.owner.push(e);
   return e;
 }

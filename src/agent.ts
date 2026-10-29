@@ -3,9 +3,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { catalog, catalogText, handleTool, LOCAL_TOOLS, type PayPal, type State } from "./shop.ts";
 
-const client = new Anthropic();
-const MODEL = process.env.MODEL ?? "claude-opus-5-5";
-const EFFORT = (process.env.EFFORT ?? "low") as "low" | "medium" | "high";
+// Read lazily: on Cloudflare Workers the environment is only ready once a request runs.
+let client: Anthropic | undefined;
+const MODEL = () => process.env.MODEL ?? "claude-opus-5-5";
+const EFFORT = () => (process.env.EFFORT ?? "low") as "low" | "medium" | "high";
 
 const SYSTEM = `You are the WhatsApp assistant of ${catalog.business}, a small cleaning company in Bristol, UK.
 You turn a customer's request into a quote, an invoice and a payment, with the owner in control of every price.
@@ -36,20 +37,23 @@ You: Hi! Yes, an oven clean is £65. What day suits you, and what's your full na
 [SHOP EVENT] messages come from the shop system, not the customer; never quote them back verbatim.
 If a tool returns an error, follow what it says and do not retry the same call unchanged.`;
 
-export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic.Beta.BetaTool[]) {
+export type History = Anthropic.Beta.BetaMessageParam[];
+
+// `history` is passed in so a conversation can be saved and restored (Durable Object storage).
+export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic.Beta.BetaTool[], history: History = []) {
   const tools = [...LOCAL_TOOLS, ...paypalTools] as Anthropic.Beta.BetaTool[];
-  const history: Anthropic.Beta.BetaMessageParam[] = [];
   let queue = Promise.resolve();
 
   async function turn(userText: string): Promise<string> {
     history.push({ role: "user", content: userText });
     for (let step = 0; step < 12; step++) {
+      client ??= new Anthropic();
       const res = await client.beta.messages.create({
-        model: MODEL,
+        model: MODEL(),
         max_tokens: 16000,
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
-        output_config: { effort: EFFORT },
+        output_config: { effort: EFFORT() },
         system: SYSTEM,
         tools,
         messages: history,
@@ -93,5 +97,5 @@ export function createAgent(state: State, paypal: PayPal, paypalTools: Anthropic
     return run;
   }
 
-  return { say };
+  return { say, history };
 }
