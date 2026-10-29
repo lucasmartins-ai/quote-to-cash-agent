@@ -24,12 +24,16 @@ export function realPayPal(clientId: string, clientSecret: string): PayPal {
   const toolkit = toolkitFor(clientId, clientSecret);
   return async (name, input) => {
     const res = await toolkit.handleToolCall({ toolUseId: "x", name, input });
-    const text = res.content[0]?.text ?? "null";
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
+    // The toolkit JSON-encodes PayPal's response, which can itself be a JSON string: unwrap until it is an object.
+    let out: unknown = res.content[0]?.text ?? "null";
+    for (let i = 0; i < 3 && typeof out === "string"; i++) {
+      try {
+        out = JSON.parse(out);
+      } catch {
+        break;
+      }
     }
+    return out;
   };
 }
 

@@ -56,7 +56,7 @@ Use the invoice email of a sandbox personal account as the customer's email, so 
 1. As the customer: *"Hi, I'm moving out of my flat in Clifton next Friday. Need an end of tenancy clean and the oven done, 2 bedrooms."*
 2. Give a name and email when asked.
 3. In the owner panel, approve the quote. The payment link appears in the chat.
-4. Either pay it, or press **Jump 7 days** to see the reminder, or reply *"I paid by bank transfer this morning"* and confirm it in the owner panel.
+4. Either pay it, or press **Skip 7 days unpaid** to see the reminder, or reply *"I paid by bank transfer this morning"* and confirm it in the owner panel.
 
 ```bash
 npm test        # guardrail tests, no keys needed

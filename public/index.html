@@ -4,144 +4,339 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quote-to-Cash Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #eae6df; --panel: #ffffff; --ink: #111b21; --muted: #667781; --line: #e2e2e2;
-    --wa-head: #075e54; --wa-bg: #efeae2; --me: #d9fdd3; --them: #ffffff; --accent: #0070e0; --ok: #1a7f37; --warn: #b42318;
+    --paper: #f3eee4; --paper-2: #ebe4d6; --card: #fbf8f2; --ink: #1d1a16; --ink-2: #5c564c; --rule: #d9d0bf;
+    --green: #1f5f46; --green-soft: #dcebe2; --amber: #9a5b0c; --amber-soft: #f6e6c8; --red: #a1321f;
+    --device: #171512; --chat-bg: #f6f3ee; --bubble-me: #1f5f46; --bubble-me-ink: #f4f1ea; --bubble-them: #ffffff;
+    --shadow: 0 1px 0 rgba(29,26,22,.04), 0 12px 32px -18px rgba(29,26,22,.35);
+    --display: "Fraunces", Georgia, serif; --body: "Instrument Sans", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0b141a; --panel: #111b21; --ink: #e9edef; --muted: #8696a0; --line: #222d34;
-      --wa-head: #202c33; --wa-bg: #0b141a; --me: #005c4b; --them: #202c33; --accent: #53a6ff; --ok: #3fb950; --warn: #ff7b72; }
+    :root { --paper: #15130f; --paper-2: #1c1914; --card: #201d17; --ink: #efe9dc; --ink-2: #a79f8f; --rule: #37312a;
+      --green: #6fbf98; --green-soft: #1c3329; --amber: #e0a854; --amber-soft: #3a2c16; --red: #e2775f;
+      --device: #000; --chat-bg: #12100d; --bubble-me: #2c6b52; --bubble-me-ink: #f1ede4; --bubble-them: #26221c;
+      --shadow: 0 12px 32px -18px rgba(0,0,0,.8); }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
-  main { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 20px; max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
-  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
-  h1 { font-size: 18px; margin: 0; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
-  .phone { background: var(--wa-bg); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; height: min(78vh, 760px); border: 1px solid var(--line); }
-  .phone header { background: var(--wa-head); color: #fff; padding: 12px 16px; }
-  .phone header small { opacity: .8; display: block; }
-  #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
-  .msg { max-width: 82%; padding: 7px 10px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: 0 1px .5px rgba(0,0,0,.13); }
-  .customer { align-self: flex-end; background: var(--me); }
-  .agent { align-self: flex-start; background: var(--them); }
-  .msg a { color: var(--accent); }
-  .typing { align-self: flex-start; color: var(--muted); font-style: italic; padding: 4px 10px; }
-  form { display: flex; gap: 8px; padding: 10px; background: var(--panel); border-top: 1px solid var(--line); }
-  input { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 20px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
-  button { font: inherit; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; background: var(--accent); color: #fff; }
-  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  button.danger { background: transparent; color: var(--warn); border: 1px solid var(--warn); }
-  button:disabled { opacity: .5; cursor: default; }
-  .side { display: flex; flex-direction: column; gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
-  .event { border-top: 1px solid var(--line); padding: 10px 0; }
-  .event:first-child { border-top: 0; padding-top: 0; }
-  .event .when { color: var(--muted); font-size: 12px; }
-  .event .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .open { font-weight: 600; }
-  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
-  dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
-  .paid { color: var(--ok); font-weight: 600; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  html, body { margin: 0; }
+  body {
+    font: 15px/1.5 var(--body); color: var(--ink); background: var(--paper);
+    background-image: radial-gradient(rgba(29,26,22,.035) 1px, transparent 1px); background-size: 4px 4px;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:disabled { cursor: default; opacity: .45; }
+  :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+  .mono { font-family: var(--mono); font-feature-settings: "tnum"; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 48px; display: grid; grid-template-columns: 400px 1fr; gap: 48px; align-items: start; }
+
+  /* ---------- Phone ---------- */
+  .device { position: sticky; top: 24px; background: var(--device); border-radius: 46px; padding: 12px; box-shadow: 0 30px 60px -30px rgba(0,0,0,.6); animation: rise .6s cubic-bezier(.2,.7,.2,1) both; }
+  .screen { background: var(--chat-bg); border-radius: 36px; overflow: hidden; height: min(780px, calc(100vh - 72px)); display: flex; flex-direction: column; position: relative; }
+  .notch { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 96px; height: 26px; background: var(--device); border-radius: 20px; z-index: 2; }
+  .chat-head { padding: 46px 18px 12px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--rule); background: color-mix(in srgb, var(--chat-bg) 85%, transparent); backdrop-filter: blur(8px); }
+  .avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--green); color: var(--bubble-me-ink); display: grid; place-items: center; font: 600 15px var(--display); flex: none; }
+  .chat-head b { display: block; font-weight: 600; }
+  .chat-head small { color: var(--ink-2); font-size: 12px; }
+  .chat-head small::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 6px; vertical-align: 1px; }
+  #chat { flex: 1; overflow-y: auto; padding: 16px 14px 8px; display: flex; flex-direction: column; gap: 4px; scroll-behavior: smooth; }
+  .day { align-self: center; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin: 4px 0 10px; }
+  .msg { max-width: 84%; padding: 8px 12px 6px; border-radius: 18px; white-space: pre-wrap; overflow-wrap: anywhere; animation: pop .25s ease-out both; font-size: 14.5px; line-height: 1.42; }
+  .msg time { display: block; text-align: right; font-size: 10.5px; opacity: .6; margin-top: 2px; }
+  .customer { align-self: flex-end; background: var(--bubble-me); color: var(--bubble-me-ink); border-bottom-right-radius: 6px; }
+  .agent { align-self: flex-start; background: var(--bubble-them); border-bottom-left-radius: 6px; box-shadow: 0 1px 1px rgba(0,0,0,.06); }
+  .msg + .customer, .msg + .agent { margin-top: 4px; }
+  .agent + .customer, .customer + .agent { margin-top: 10px; }
+  .msg a { color: inherit; font-weight: 600; text-underline-offset: 3px; }
+  .paylink { display: inline-flex; align-items: center; gap: 8px; margin: 6px 0 2px; padding: 9px 14px; border-radius: 12px; background: var(--paper-2); color: var(--ink) !important; text-decoration: none; font-weight: 600; white-space: nowrap; }
+  .paylink::after { content: "→"; }
+  .typing { align-self: flex-start; background: var(--bubble-them); border-radius: 18px; border-bottom-left-radius: 6px; padding: 12px 14px; display: flex; gap: 4px; margin-top: 10px; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-2); animation: blink 1.2s infinite both; }
+  .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+  .empty { margin: auto 6px; text-align: center; color: var(--ink-2); font-size: 13.5px; }
+  .empty p { margin: 0 0 14px; }
+  .chips { display: flex; flex-direction: column; gap: 8px; }
+  .chip { text-align: left; background: var(--bubble-them); border: 1px solid var(--rule); border-radius: 14px; padding: 10px 12px; font-size: 13.5px; transition: border-color .15s, transform .15s; }
+  .chip:hover { border-color: var(--green); transform: translateY(-1px); }
+  .composer { display: flex; gap: 8px; padding: 10px 12px 18px; }
+  .composer input { flex: 1; min-width: 0; border: 1px solid var(--rule); background: var(--bubble-them); color: var(--ink); border-radius: 22px; padding: 11px 16px; font: inherit; font-size: 14.5px; }
+  .composer input:focus { outline: none; border-color: var(--green); }
+  .send { width: 44px; height: 44px; flex: none; border: 0; border-radius: 50%; background: var(--green); color: var(--bubble-me-ink); display: grid; place-items: center; transition: transform .15s; }
+  .send:not(:disabled):hover { transform: scale(1.06); }
+  .send svg { width: 18px; height: 18px; }
+
+  /* ---------- Owner desk ---------- */
+  .desk { display: flex; flex-direction: column; gap: 22px; padding-top: 6px; }
+  .desk > * { animation: rise .6s cubic-bezier(.2,.7,.2,1) both; }
+  .desk > *:nth-child(2) { animation-delay: .06s; } .desk > *:nth-child(3) { animation-delay: .12s; } .desk > *:nth-child(4) { animation-delay: .18s; } .desk > *:nth-child(5) { animation-delay: .24s; }
+  .masthead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 14px; }
+  .eyebrow { font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 6px; }
+  h1 { font: 650 clamp(28px, 3.4vw, 40px)/1.02 var(--display); letter-spacing: -.01em; margin: 0; }
+  h1 em { font-style: italic; font-weight: 500; color: var(--green); }
+  .mode { font-size: 12px; padding: 5px 10px; border: 1px solid var(--rule); border-radius: 99px; color: var(--ink-2); background: var(--card); white-space: nowrap; }
+  .mode::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; background: var(--amber); vertical-align: 1px; }
+  .mode.sandbox::before { background: #2f7de1; }
+
+  .rail { display: grid; grid-template-columns: repeat(4, 1fr); counter-reset: step; }
+  .step { position: relative; padding-top: 22px; font-size: 13px; color: var(--ink-2); }
+  .step::before { content: ""; position: absolute; top: 7px; left: 0; right: 0; height: 2px; background: var(--rule); }
+  .step::after { counter-increment: step; content: counter(step); position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; background: var(--paper); border: 2px solid var(--rule); font: 600 9px/12px var(--body); text-align: center; color: transparent; transition: all .3s; }
+  .step b { display: block; color: var(--ink); font-weight: 600; font-size: 14px; }
+  .step.done::before { background: var(--green); }
+  .step.done::after { background: var(--green); border-color: var(--green); content: "✓"; color: var(--bubble-me-ink); }
+  .step.now::after { border-color: var(--amber); background: var(--amber-soft); animation: pulse 1.6s infinite; }
+  .step.now b { color: var(--amber); }
+
+  .card { background: var(--card); border: 1px solid var(--rule); border-radius: 18px; box-shadow: var(--shadow); }
+  .section-title { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 12px; }
+  .section-title h2 { font: 600 20px var(--display); margin: 0; }
+  .section-title span { font-size: 12.5px; color: var(--ink-2); }
+
+  .grid2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 22px; align-items: start; }
+
+  /* Needs you */
+  .ask { padding: 20px; border-left: 4px solid var(--amber); animation: pop .3s ease-out both; }
+  .ask + .ask { margin-top: 14px; }
+  .ask .tag { display: inline-block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); font-weight: 600; margin-bottom: 6px; }
+  .ask h3 { font: 600 18px/1.25 var(--display); margin: 0 0 10px; }
+  .ask p { margin: 0 0 12px; color: var(--ink-2); }
+  .lines { width: 100%; border-collapse: collapse; margin: 4px 0 14px; font-size: 14px; }
+  .lines td { padding: 7px 0; border-bottom: 1px dashed var(--rule); vertical-align: top; }
+  .lines td:last-child { text-align: right; white-space: nowrap; }
+  .lines small { display: block; color: var(--ink-2); font-size: 12px; }
+  .lines tfoot td { border-bottom: 0; padding-top: 10px; font-weight: 600; font-size: 16px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--ink); background: var(--ink); color: var(--paper); border-radius: 12px; padding: 11px 18px; font-weight: 600; transition: transform .15s, box-shadow .15s; }
+  .btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 6px 16px -8px rgba(0,0,0,.5); }
+  .btn.go { background: var(--green); border-color: var(--green); color: var(--bubble-me-ink); }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+  .btn.ghost:not(:disabled):hover { border-color: var(--ink); box-shadow: none; }
+  .calm { padding: 22px; color: var(--ink-2); display: flex; gap: 14px; align-items: center; }
+  .calm svg { flex: none; width: 34px; height: 34px; color: var(--green); }
+
+  /* Receipt */
+  .receipt { position: relative; padding: 22px 22px 26px; background: var(--card); border: 1px solid var(--rule); border-radius: 6px 6px 0 0; box-shadow: var(--shadow); }
+  .receipt::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -10px; height: 10px; background: linear-gradient(-45deg, transparent 6px, var(--card) 0) 0 0/12px 10px, linear-gradient(45deg, transparent 6px, var(--card) 0) 0 0/12px 10px; filter: drop-shadow(0 1px 0 var(--rule)); }
+  .receipt .head { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed var(--rule); padding-bottom: 12px; margin-bottom: 4px; }
+  .receipt .head b { font: 600 17px var(--display); display: block; }
+  .receipt .head small { color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+  .status { align-self: flex-start; font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; padding: 4px 9px; border-radius: 6px; background: var(--paper-2); color: var(--ink-2); white-space: nowrap; }
+  .status.wait { background: var(--amber-soft); color: var(--amber); }
+  .status.paid { background: var(--green-soft); color: var(--green); }
+  .stamp { display: block; width: max-content; margin: 6px auto 0; transform: rotate(-8deg); border: 3px solid var(--green); color: var(--green); font: 650 30px var(--display); letter-spacing: .14em; padding: 2px 16px; border-radius: 8px; opacity: .9; animation: stamp .45s cubic-bezier(.3,1.6,.5,1) both; pointer-events: none; mix-blend-mode: multiply; }
+  @media (prefers-color-scheme: dark) { .stamp { mix-blend-mode: normal; } }
+  .receipt .foot { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .placeholder { color: var(--ink-2); font-size: 14px; padding: 6px 0 0; }
+
+  /* Log */
+  .log { padding: 4px 20px; }
+  .log ol { list-style: none; margin: 0; padding: 0; }
+  .log li { display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--rule); font-size: 13.5px; }
+  .log li:last-child { border-bottom: 0; }
+  .log time { color: var(--ink-2); font-size: 12px; padding-top: 1px; }
+  .log .none { color: var(--ink-2); padding: 14px 0; display: block; }
+
+  .tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border: 1px dashed var(--rule); border-radius: 14px; }
+  .tools p { margin: 0; font-size: 13px; color: var(--ink-2); }
+  .tools .actions { gap: 8px; }
+  .tools .btn { padding: 8px 14px; font-size: 13.5px; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--paper); padding: 11px 18px; border-radius: 12px; font-size: 14px; opacity: 0; transition: all .25s; pointer-events: none; z-index: 10; max-width: calc(100% - 32px); }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--amber) 20%, transparent); } }
+  @keyframes stamp { from { opacity: 0; transform: rotate(-8deg) scale(1.8); } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+  @media (max-width: 980px) {
+    .wrap { grid-template-columns: 1fr; gap: 28px; padding: 16px 16px 40px; }
+    .device { position: static; padding: 0; background: none; box-shadow: none; border-radius: 22px; }
+    .screen { border-radius: 22px; height: 70vh; border: 1px solid var(--rule); }
+    .notch { display: none; }
+    .chat-head { padding-top: 14px; }
+    .grid2 { grid-template-columns: 1fr; }
+    .desk { order: -1; }
+  }
+  @media (max-width: 520px) {
+    .rail { grid-template-columns: repeat(2, 1fr); row-gap: 14px; }
+    .stamp { font-size: 22px; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <section aria-label="Customer chat">
-    <div class="phone">
-      <header><strong>Harbourside Cleaning</strong><small>Customer's WhatsApp (simulated)</small></header>
+<div class="wrap">
+  <section class="device" aria-label="Customer chat (simulated phone)">
+    <div class="screen">
+      <div class="notch" aria-hidden="true"></div>
+      <header class="chat-head">
+        <div class="avatar" aria-hidden="true">H</div>
+        <div><b>Harbourside Cleaning</b><small>Replies in seconds</small></div>
+      </header>
       <div id="chat" aria-live="polite"></div>
-      <form id="send">
-        <input id="text" autocomplete="off" placeholder="Type as the customer…" aria-label="Customer message">
-        <button>Send</button>
+      <form class="composer" id="send">
+        <input id="text" autocomplete="off" placeholder="Message as the customer" aria-label="Message as the customer">
+        <button class="send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
       </form>
     </div>
   </section>
 
-  <section class="side" aria-label="Owner panel">
-    <div class="card top">
-      <h1>Owner panel</h1>
-      <span class="badge" id="mode"></span>
+  <main class="desk">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Owner's desk · Harbourside Cleaning</p>
+        <h1>From chat to <em>paid</em>.</h1>
+      </div>
+      <span class="mode" id="mode">Loading</span>
+    </header>
+
+    <nav class="rail" id="rail" aria-label="Progress of this job"></nav>
+
+    <div class="grid2">
+      <section aria-labelledby="needs-h">
+        <div class="section-title"><h2 id="needs-h">Needs you</h2><span id="needs-count"></span></div>
+        <div id="needs"></div>
+      </section>
+      <section aria-labelledby="inv-h">
+        <div class="section-title"><h2 id="inv-h">Invoice</h2><span>PayPal</span></div>
+        <div id="invoice"></div>
+      </section>
     </div>
-    <div class="card">
-      <h2>Needs you</h2>
-      <div id="events"></div>
-    </div>
-    <div class="card">
-      <h2>Invoice</h2>
-      <dl id="invoice"></dl>
-    </div>
-    <div class="card">
-      <h2>Demo controls</h2>
-      <div class="row">
-        <button class="secondary" id="overdue">Jump 7 days (unpaid)</button>
-        <button class="danger" id="reset">Reset demo</button>
+
+    <section aria-labelledby="log-h">
+      <div class="section-title"><h2 id="log-h">What the agent did</h2></div>
+      <div class="card log"><ol id="log"></ol></div>
+    </section>
+
+    <div class="tools">
+      <p>Demo controls, for trying the flow end to end.</p>
+      <div class="actions">
+        <button class="btn ghost" id="overdue" title="Pretend a week has passed without payment">Skip 7 days unpaid</button>
+        <button class="btn ghost" id="reset">Start over</button>
       </div>
     </div>
-  </section>
-</main>
+  </main>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
 <script>
 const $ = (id) => document.getElementById(id);
-let busy = false, last = "";
+const SUGGEST = [
+  "Hi, I'm moving out of my flat in Clifton next Friday. Can you do an end of tenancy clean and the oven? It's 2 bedrooms.",
+  "How much for a deep clean of a 3-bed house this Saturday?",
+];
+let S = null, busy = false;
+const painted = {};
 
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const linkify = (s) => esc(s).replace(/https?:\/\/[^\s)]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const money = (v) => `£${Number(v).toLocaleString("en-GB", { minimumFractionDigits: 2 })}`;
+// Payment links become a button; other links stay inline.
+const rich = (s) => esc(s).replace(/https?:\/\/[^\s<]+/g, (u) => /\/(invoice\/p|pay)\//.test(u)
+  ? `<a class="paylink" href="${u}" target="_blank" rel="noopener">Pay ${S?.quote ? money(S.quote.total) : ""} securely</a>`
+  : `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+const paint = (id, html) => { if (painted[id] !== html) { $(id).innerHTML = html; painted[id] = html; return true; } };
 
-async function post(path, data) {
-  busy = true; render(window.__s);
-  try {
-    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data ?? {}) });
-    const j = await r.json();
-    if (!r.ok) alert(j.error);
-  } finally { busy = false; refresh(); }
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 3200);
 }
 
-function render(s) {
-  if (!s) return;
-  window.__s = s;
-  $("mode").textContent = s.mode === "mock" ? "Mock PayPal" : "PayPal sandbox";
-  const chat = s.chat.map((m) => `<div class="msg ${m.from}">${linkify(m.text)}</div>`).join("") + (busy ? `<div class="typing">typing…</div>` : "");
-  if (chat !== last) { $("chat").innerHTML = chat; $("chat").scrollTop = 1e9; last = chat; }
+async function post(path, data) {
+  busy = true; render();
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data ?? {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) toast(j.error ?? "Something went wrong.");
+  } catch { toast("Can't reach the server."); }
+  finally { busy = false; refresh(); }
+}
 
-  const evs = [...s.owner].reverse();
-  $("events").innerHTML = evs.length ? evs.map((e) => `
-    <div class="event"><div class="${e.status === "open" ? "open" : ""}">${esc(e.text)}</div>
-    <div class="when">${time(e.at)}</div>
-    ${e.status === "open" ? `<div class="actions">${e.kind === "quote"
-      ? `<button data-a="approve_quote" data-id="${e.id}">Approve quote</button><button class="secondary" data-a="reject_quote" data-id="${e.id}">Reject</button>`
-      : `<button data-a="confirm_payment" data-id="${e.id}">Money arrived</button><button class="secondary" data-a="reject_payment" data-id="${e.id}">Not yet</button>`}</div>` : ""}
-    </div>`).join("") : `<p class="when">Nothing yet. Start the chat as the customer.</p>`;
+function stage(s) {
+  const inv = s.invoice, q = s.quote;
+  if (inv && /PAID/.test(inv.status)) return 4;
+  if (inv && inv.status !== "DRAFT") return 3;
+  if (q?.status === "approved") return 2;
+  if (q?.status === "pending") return 1;
+  return 0;
+}
+
+function render() {
+  const s = S; if (!s) return;
+  const m = $("mode"); m.textContent = s.mode === "mock" ? "Mock PayPal" : "PayPal sandbox"; m.className = `mode ${s.mode}`;
+
+  // Chat
+  const msgs = s.chat.map((x) => `<div class="msg ${x.from}">${rich(x.text)}<time>${time(x.at)}</time></div>`).join("");
+  const chat = s.chat.length
+    ? `<div class="day">Today</div>${msgs}${busy ? `<div class="typing" aria-label="Agent is typing"><i></i><i></i><i></i></div>` : ""}`
+    : `<div class="empty"><p>You're the customer. Ask for a clean, or try one of these:</p><div class="chips">${SUGGEST.map((t, i) => `<button class="chip" data-s="${i}">${esc(t)}</button>`).join("")}</div></div>`;
+  if (paint("chat", chat)) { $("chat").scrollTop = $("chat").scrollHeight; document.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => sendText(SUGGEST[b.dataset.s])); }
+
+  // Progress rail
+  const st = stage(s);
+  const steps = [["Quote", "priced from your list"], ["Approved", "by you"], ["Invoiced", "sent via PayPal"], ["Paid", "money in"]];
+  paint("rail", steps.map(([t, d], i) => `<div class="step ${i < st ? "done" : i === st && st < 4 ? "now" : ""}"><b>${t}</b>${d}</div>`).join(""));
+
+  // Needs you
+  const open = s.owner.filter((e) => e.status === "open").reverse();
+  $("needs-count").textContent = open.length ? `${open.length} waiting` : "";
+  paint("needs", open.length ? open.map((e) => e.kind === "quote" && s.quote ? `
+      <div class="card ask"><span class="tag">Approve price</span>
+        <h3>New job, ${money(s.quote.total)}</h3>
+        ${s.quote.note ? `<p>${esc(s.quote.note)}</p>` : ""}
+        <table class="lines">${s.quote.lines.map((l) => `<tr><td>${l.quantity} × ${esc(l.name)}<small>${esc(l.description)}</small></td><td class="mono">${money(Number(l.unit_amount.value) * Number(l.quantity))}</td></tr>`).join("")}
+          <tfoot><tr><td>Total</td><td class="mono">${money(s.quote.total)}</td></tr></tfoot></table>
+        <div class="actions"><button class="btn go" data-a="approve_quote" data-id="${e.id}">Approve and invoice</button><button class="btn ghost" data-a="reject_quote" data-id="${e.id}">I'll call them</button></div>
+      </div>` : `
+      <div class="card ask"><span class="tag">Check your bank</span>
+        <h3>${esc(e.text)}</h3>
+        <p>The agent won't mark it paid until you confirm.</p>
+        <div class="actions"><button class="btn go" data-a="confirm_payment" data-id="${e.id}">Money arrived</button><button class="btn ghost" data-a="reject_payment" data-id="${e.id}">Not yet</button></div>
+      </div>`).join("")
+    : `<div class="card calm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.6 2.5L16 9.5"/></svg><div>${st === 0 ? "Nothing to do. When a customer asks for a job, the priced quote lands here for your OK." : st === 4 ? "All done. This job is paid." : "Nothing needs you. The agent is handling the customer."}</div></div>`);
   document.querySelectorAll("[data-a]").forEach((b) => { b.disabled = busy; b.onclick = () => post("/api/owner", { action: b.dataset.a, id: Number(b.dataset.id) }); });
 
+  // Invoice receipt
   const q = s.quote, inv = s.invoice;
-  $("invoice").innerHTML = inv
-    ? `<dt>ID</dt><dd>${esc(inv.id)}</dd><dt>Total</dt><dd>£${q ? q.total : "?"}</dd>
-       <dt>Status</dt><dd class="${/PAID/.test(inv.status) ? "paid" : ""}">${esc(inv.status)}</dd>
-       ${inv.payUrl ? `<dt>Pay link</dt><dd><a href="${esc(inv.payUrl)}" target="_blank" rel="noopener">open</a></dd>` : ""}`
-    : q ? `<dt>Quote</dt><dd>£${q.total} (${q.status})</dd>` : `<dt>Status</dt><dd>No invoice yet</dd>`;
-  $("overdue").disabled = busy || !inv || /PAID|DRAFT/.test(inv.status);
+  const paid = inv && /PAID/.test(inv.status);
+  paint("invoice", inv && q ? `
+    <div class="receipt">
+      <div class="head"><div><b>Harbourside Cleaning</b><small class="mono">${esc(inv.id)}</small></div>
+        <span class="status ${paid ? "paid" : inv.status === "DRAFT" ? "" : "wait"}">${paid ? "Paid" : inv.status === "DRAFT" ? "Draft" : "Awaiting payment"}</span></div>
+      <table class="lines">${q.lines.map((l) => `<tr><td>${l.quantity} × ${esc(l.name)}</td><td class="mono">${money(Number(l.unit_amount.value) * Number(l.quantity))}</td></tr>`).join("")}
+        <tfoot><tr><td>Total</td><td class="mono">${money(q.total)}</td></tr></tfoot></table>
+      ${inv.payUrl && !paid ? `<div class="foot"><a class="btn ghost" href="${esc(inv.payUrl)}" target="_blank" rel="noopener" style="text-decoration:none">Open payment page</a></div>` : ""}
+      ${paid ? `<div class="stamp">PAID</div>` : ""}
+    </div>`
+    : `<div class="card calm"><div class="placeholder">${q ? `Quote of <b class="mono">${money(q.total)}</b> is ${q.status === "pending" ? "waiting for your approval" : esc(q.status)}. The invoice appears here once it's sent.` : "No invoice yet."}</div></div>`);
+
+  // Log
+  const log = s.owner.filter((e) => e.kind === "info" || e.status === "done").slice().reverse();
+  paint("log", log.length ? log.map((e) => `<li><time class="mono">${time(e.at)}</time><span>${esc(e.text)}</span></li>`).join("") : `<span class="none">Each step the agent takes shows up here.</span>`);
+
+  $("overdue").disabled = busy || !inv || paid || inv.status === "DRAFT";
   $("send").querySelector("button").disabled = busy;
 }
 
 async function refresh() {
-  try { render(await (await fetch("/api/state")).json()); } catch {}
+  try { S = await (await fetch("/api/state")).json(); render(); } catch {}
 }
 
-$("send").onsubmit = (e) => {
-  e.preventDefault();
-  const text = $("text").value.trim();
+function sendText(text) {
   if (!text || busy) return;
-  $("text").value = "";
-  window.__s.chat.push({ from: "customer", text, at: new Date().toISOString() });
+  S.chat.push({ from: "customer", text, at: new Date().toISOString() });
   post("/api/customer", { text });
-};
+}
+$("send").onsubmit = (e) => { e.preventDefault(); const t = $("text").value.trim(); $("text").value = ""; sendText(t); };
 $("overdue").onclick = () => post("/api/simulate-overdue");
-$("reset").onclick = () => confirm("Clear the conversation?") && post("/api/reset");
+$("reset").onclick = () => confirm("Start over with an empty chat?") && post("/api/reset");
 
 refresh();
 setInterval(refresh, 1500);
