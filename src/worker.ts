@@ -3,6 +3,7 @@
 import { DurableObject } from "cloudflare:workers";
 import html from "../public/index.html";
 import { Conversation, HttpError, type DailyBudget, type Snapshot } from "./conversation.ts";
+import { addressGroup } from "./net.ts";
 import { paypalToolSchemas, realPayPal } from "./paypal.ts";
 
 interface Env {
@@ -46,12 +47,13 @@ export class BudgetDO extends DurableObject<Env> {
     await this.ctx.storage.put("day", { day: d.day, turns: d.turns + 1 });
     return null;
   }
-  // At most 20 new conversations per address per hour (IPv6 counted per /64), and 120 per hour in total.
+  // At most 20 new conversations per address per hour (IPv6 counted per /64), and 600 per hour in total.
   async allowNewSession(ip: string): Promise<boolean> {
-    const key = "ip:" + (ip.includes(":") ? ip.split(":").slice(0, 4).join(":") : ip);
+    const key = "ip:" + addressGroup(ip);
     const recent = ((await this.ctx.storage.get<number[]>(key)) ?? []).filter((t) => Date.now() - t < 3600_000);
     const all = ((await this.ctx.storage.get<number[]>("all")) ?? []).filter((t) => Date.now() - t < 3600_000);
-    if (recent.length >= 20 || all.length >= 120) return false;
+    // The global ceiling only bounds storage writes; Claude spend is capped per call elsewhere, so keep it high.
+    if (recent.length >= 20 || all.length >= 600) return false;
     await this.ctx.storage.put(key, [...recent, Date.now()]);
     await this.ctx.storage.put("all", [...all, Date.now()]);
     if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + 3600_000);
