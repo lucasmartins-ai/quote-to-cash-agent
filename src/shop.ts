@@ -86,6 +86,9 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
   switch (name) {
     case "propose_quote": {
       if (s.invoice || s.series) throw new Error("This conversation already has an invoice or a plan.");
+      // A plan created in PayPal but not yet confirmed active belongs to the approved quote; it must not be
+      // reused for a different one, so the quote cannot change until that plan is finished.
+      if (s.seriesDraft) throw new Error(`Plan ${s.seriesDraft} is still being set up. Call create_recurring_plan again to finish it.`);
       const { lines, total } = priceQuote(input.items ?? []);
       const repeat = input.repeat_every_weeks != null ? checkRepeat(input.items, input.repeat_every_weeks, input.start_date) : undefined;
       // A new quote supersedes any open one, so an old Approve button cannot approve it.

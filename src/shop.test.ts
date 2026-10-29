@@ -162,6 +162,8 @@ test("a lost activation reply resumes the same plan instead of creating a second
   };
   await assert.rejects(handleTool(s, flaky, "create_recurring_plan", bill), /timeout/);
   assert.ok(s.seriesDraft);
+  // The half-made plan belongs to this quote: a different quote cannot take its place.
+  await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "windows", quantity: 1 }], repeat_every_weeks: 4, start_date: inDays(9) }), /still being set up/);
   await handleTool(s, flaky, "create_recurring_plan", bill);
   assert.equal(calls.filter((n) => n === "create_recurring_series").length, 1);
   assert.match(s.series!.id, /^RI-/);
