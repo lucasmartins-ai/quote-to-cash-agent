@@ -78,6 +78,8 @@ export function mockPayPal() {
         return { id: `RI-MOCK${String(++n).padStart(4, "0")}`, status: "DRAFT", plan_detail: { start_series_date: input.start_series_date } };
       case "activate_recurring_series":
         return { recurring_series_id: input.recurring_series_id, status: 204 };
+      case "get_recurring_series":
+        return { id: input.recurring_series_id, status: "ACTIVE" };
       case "record_payment_for_invoice":
         invoices.get(input.invoice_id)!.status = "MARKED_AS_PAID";
         return { payment_id: "EXTR-MOCK" };

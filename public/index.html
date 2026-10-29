@@ -233,7 +233,8 @@ const SUGGEST = [
   "Could you do a regular clean of my 3-bed house in Redland every two weeks, starting next Monday?",
 ];
 const every = (n) => (n === 1 ? "every week" : `every ${n} weeks`);
-const day = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+// A plan date is a calendar day, not a moment: format it in UTC so no browser time zone shifts it.
+const day = (d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 let S = null, busy = false;
 const painted = {};
 
@@ -298,7 +299,7 @@ function render() {
   paint("needs", open.length ? open.map((e) => e.kind === "quote" && s.quote ? `
       <div class="card ask"><span class="tag">Approve price</span>
         <h3>${s.quote.repeat ? `Regular plan, ${money(s.quote.total)} ${every(s.quote.repeat.everyWeeks)}` : `New job, ${money(s.quote.total)}`}</h3>
-        ${s.quote.repeat ? `<p>First visit ${esc(day(s.quote.repeat.start))}. PayPal will bill each visit automatically.</p>` : ""}
+        ${s.quote.repeat ? `<p>First visit ${esc(day(s.quote.repeat.start))}, ${Number(s.quote.repeat.cycles)} visits in total. PayPal will bill each visit automatically.</p>` : ""}
         ${s.quote.note ? `<p>${esc(s.quote.note)}</p>` : ""}
         <table class="lines">${s.quote.lines.map((l) => `<tr><td>${l.quantity} × ${esc(l.name)}<small>${esc(l.description)}</small></td><td class="mono">${money(Number(l.unit_amount.value) * Number(l.quantity))}</td></tr>`).join("")}
           <tfoot><tr><td>Total</td><td class="mono">${money(s.quote.total)}</td></tr></tfoot></table>

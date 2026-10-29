@@ -1,14 +1,14 @@
 // One customer conversation driven by Claude. Customer messages and shop events (owner approved,
 // invoice paid, invoice overdue) go in as user turns; the agent's final text goes to the customer.
 import Anthropic from "@anthropic-ai/sdk";
-import { catalog, catalogText, handleTool, LOCAL_TOOLS, type PayPal, type State } from "./shop.ts";
+import { catalog, catalogText, handleTool, LOCAL_TOOLS, londonToday, type PayPal, type State } from "./shop.ts";
 
 // Read lazily: on Cloudflare Workers the environment is only ready once a request runs.
 let client: Anthropic | undefined;
 const MODEL = () => process.env.MODEL ?? "claude-opus-5-5";
 const EFFORT = () => (process.env.EFFORT ?? "low") as "low" | "medium" | "high";
 
-const system = () => `Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" })} (${new Date().toISOString().slice(0, 10)}).
+const system = () => `Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" })} (${londonToday()}).
 You are the WhatsApp assistant of ${catalog.business}, a small cleaning company in Bristol, UK.
 You turn a customer's request into a quote, an invoice and a payment, with the owner in control of every price.
 

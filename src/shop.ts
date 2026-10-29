@@ -18,21 +18,26 @@ export type State = {
   invoice?: { id: string; status: string; payUrl?: string; notifiedPaid?: boolean };
   paymentClaim?: { method: string; customerSaid: string; status: "pending" | "confirmed" | "rejected" };
   series?: { id: string; status: string; everyWeeks: number; start: string; cycles: number };
+  seriesDraft?: string; // created in PayPal but not yet confirmed active: a retry resumes it instead of creating another
 };
-export type Repeat = { everyWeeks: 1 | 2 | 4; start: string };
+export type Repeat = { everyWeeks: 1 | 2 | 4; start: string; cycles: number };
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Dates follow the shop's calendar (Bristol), not UTC: between midnight and 1 am in summer they differ.
+export const londonToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+const today = londonToday;
 const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 86400_000).toISOString().slice(0, 10);
 
 // A repeating plan: weekly, fortnightly or every four weeks, starting tomorrow at the earliest and within 60 days.
 export function checkRepeat(items: { service_id: string }[], every: unknown, start: unknown): Repeat {
   if (![1, 2, 4].includes(Number(every))) throw new Error("repeat_every_weeks must be 1, 2 or 4.");
   const s = String(start ?? "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(Date.parse(s))) throw new Error("start_date must be a date in YYYY-MM-DD format.");
+  // Date.parse("2026-11-31") quietly becomes 1 December, so the parsed date must read back as the same string.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(Date.parse(s)) || new Date(s + "T00:00:00Z").toISOString().slice(0, 10) !== s) throw new Error("start_date must be a real date in YYYY-MM-DD format.");
   if (s <= today() || s > addDays(today(), 60)) throw new Error(`start_date must be between ${addDays(today(), 1)} and ${addDays(today(), 60)}.`);
   const notRepeatable = items.filter((i) => !catalog.services.find((x) => x.id === i.service_id)?.recurring).map((i) => i.service_id);
   if (notRepeatable.length) throw new Error(`These services cannot be booked as a repeating plan: ${notRepeatable.join(", ")}. Repeatable: ${catalog.services.filter((x) => x.recurring).map((x) => x.id).join(", ")}.`);
-  return { everyWeeks: Number(every) as Repeat["everyWeeks"], start: s };
+  // The number of visits is fixed when the quote is made, so the owner approves it along with the price.
+  return { everyWeeks: Number(every) as Repeat["everyWeeks"], start: s, cycles: Number(process.env.PLAN_MAX_CYCLES ?? 12) };
 }
 
 // Who to bill. Public demo: everything goes to one sandbox address, so visitors cannot make it email strangers.
@@ -87,7 +92,7 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
       for (const e of s.owner) if (e.kind === "quote" && e.status === "open") e.status = "done";
       s.quote = { lines, total, note: String(input.note ?? "").slice(0, 500), status: "pending", repeat };
       const summary = lines.map((l) => `${l.quantity} × ${l.name} @ £${l.unit_amount.value}`).join("; ");
-      const plan = repeat ? ` every ${repeat.everyWeeks === 1 ? "week" : `${repeat.everyWeeks} weeks`} from ${repeat.start}` : "";
+      const plan = repeat ? ` every ${repeat.everyWeeks === 1 ? "week" : `${repeat.everyWeeks} weeks`} from ${repeat.start}, ${repeat.cycles} visits` : "";
       ownerEvent(s, "quote", `Quote for £${total}${plan}: ${summary}${input.note ? ` (${input.note})` : ""}`);
       return `Quote of £${total}${plan} sent to the owner for approval. Tell the customer the total and that you will confirm shortly. Do not create an invoice or plan yet.`;
     }
@@ -126,20 +131,31 @@ export async function handleTool(s: State, paypal: PayPal, name: string, input: 
       if (s.series) throw new Error(`Plan ${s.series.id} is already set up.`);
       if (repeat.start <= today()) throw new Error("The plan's start date has passed. Ask the customer for a new date and propose the quote again.");
       // Every cycle, amount and date comes from the approved quote; the model only says who to bill.
-      const cycles = Number(process.env.PLAN_MAX_CYCLES ?? 12);
-      const created: any = await paypal("create_recurring_series", {
-        interval_unit: "WEEK",
-        interval_count: repeat.everyWeeks,
-        start_series_date: repeat.start,
-        total_cycles: cycles,
-        currency_code: catalog.currency,
-        invoicer_business_name: catalog.business,
-        items: s.quote.lines,
-        primary_recipients: recipient(input),
-      });
-      const id = String(created?.id ?? "");
-      if (!/^RI-[A-Z0-9]+$/.test(id)) throw new Error(`PayPal did not return a plan id: ${JSON.stringify(created).slice(0, 300)}`);
-      await paypal("activate_recurring_series", { recurring_series_id: id });
+      const cycles = repeat.cycles;
+      let id = s.seriesDraft;
+      if (!id) {
+        const created: any = await paypal("create_recurring_series", {
+          interval_unit: "WEEK",
+          interval_count: repeat.everyWeeks,
+          start_series_date: repeat.start,
+          total_cycles: cycles,
+          currency_code: catalog.currency,
+          invoicer_business_name: catalog.business,
+          items: s.quote.lines,
+          primary_recipients: recipient(input),
+        });
+        id = String(created?.id ?? "");
+        if (!/^RI-[A-Z0-9]+$/.test(id)) throw new Error(`PayPal did not return a plan id: ${JSON.stringify(created).slice(0, 300)}`);
+        s.seriesDraft = id; // remembered before activating, so a lost activation reply never leads to a second plan
+      }
+      try {
+        await paypal("activate_recurring_series", { recurring_series_id: id });
+      } catch (err) {
+        // The activation may have gone through even though the reply failed: ask PayPal before giving up.
+        const current: any = await paypal("get_recurring_series", { recurring_series_id: id }).catch(() => null);
+        if (current?.status !== "ACTIVE") throw err;
+      }
+      s.seriesDraft = undefined;
       s.series = { id, status: "ACTIVE", everyWeeks: repeat.everyWeeks, start: repeat.start, cycles };
       ownerEvent(s, "info", `Plan ${id} active: £${s.quote.total} every ${repeat.everyWeeks === 1 ? "week" : `${repeat.everyWeeks} weeks`} from ${repeat.start}, ${cycles} invoices.`);
       return `Plan ${id} is active. PayPal will email an invoice for £${s.quote.total} on ${repeat.start} and then every ${repeat.everyWeeks === 1 ? "week" : `${repeat.everyWeeks} weeks`} (${cycles} visits). Tell the customer, plainly.`;

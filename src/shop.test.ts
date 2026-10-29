@@ -136,3 +136,34 @@ test("only repeatable services, and a start date inside the window, can become a
   await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 1, start_date: inDays(0) }), /start_date must be between/);
   await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 1, start_date: inDays(90) }), /start_date must be between/);
 });
+
+test("an impossible date is refused, and the number of visits is part of the approved quote", async () => {
+  const { run } = mockPayPal();
+  const s = newState();
+  const y = new Date().getUTCFullYear() + 1;
+  await assert.rejects(handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 2, start_date: `${y}-02-30` }), /real date/);
+  await handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 2, start_date: inDays(5) });
+  assert.equal(s.quote!.repeat!.cycles, 12);
+  assert.match(s.owner.at(-1)!.text, /12 visits/);
+});
+
+test("a lost activation reply resumes the same plan instead of creating a second one", async () => {
+  const { run } = mockPayPal();
+  const s = newState();
+  await handleTool(s, run, "propose_quote", { items: [{ service_id: "regular-clean", quantity: 1 }], repeat_every_weeks: 1, start_date: inDays(2) });
+  s.quote!.status = "approved";
+  const calls: string[] = [];
+  let failOnce = true;
+  const flaky = async (n: string, i: any) => {
+    calls.push(n);
+    if (n === "activate_recurring_series" && failOnce) { failOnce = false; throw new Error("timeout"); }
+    if (n === "get_recurring_series") return { status: "DRAFT" };
+    return run(n, i);
+  };
+  await assert.rejects(handleTool(s, flaky, "create_recurring_plan", bill), /timeout/);
+  assert.ok(s.seriesDraft);
+  await handleTool(s, flaky, "create_recurring_plan", bill);
+  assert.equal(calls.filter((n) => n === "create_recurring_series").length, 1);
+  assert.match(s.series!.id, /^RI-/);
+  assert.equal(s.seriesDraft, undefined);
+});
